@@ -59,21 +59,32 @@ export function wipe(buf: Uint8Array): void {
 
 /**
  * 为 AuthKey 生成服务端可存储的验证子（客户端在注册/换密码时计算一次后上传）。
- * 注意：服务端只做 crypto_pwhash_str_verify，永远接触不到主密码/MK。
+ *
+ * 注意：这里用的是 SHA-256 而非 Argon2id —— 这是深思熟虑的取舍：
+ * authKey 是 256 位随机密钥（HKDF 派生），不是人类弱密码，SHA-256 的原像抗性
+ * 已足够（偷库者逆不出 256 位原像）；而真正的慢哈希保护（Argon2id 64MB）
+ * 发生在客户端"主密码 → MK"那一步。同步服务跑在 Cloudflare Workers 上，
+ * 单请求 CPU 时间只有 10ms 量级，Argon2id 会被直接掐掉，用 SHA-256 是
+ * 在这种约束下的正确选择。服务端只做 SHA-256 比对，永远接触不到主密码/MK。
  */
 export async function makeAuthVerifier(authKey: Uint8Array): Promise<string> {
   await sodium.ready;
-  const asText = sodium.to_base64(authKey, sodium.base64_variants.ORIGINAL);
-  return sodium.crypto_pwhash_str(
-    asText,
-    sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-    sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-  );
+  if (authKey.length !== KEY_BYTES) throw new Error('authKey must be 32 bytes');
+  const digest = sodium.crypto_hash_sha256(authKey);
+  return sodium.to_base64(digest, sodium.base64_variants.ORIGINAL);
 }
 
-/** 服务端：校验登录时提交的 AuthKey。恒定时间比较，防时序攻击。 */
+/** 校验登录时提交的 AuthKey：SHA-256 后做恒定时间比较，防时序攻击。 */
 export async function verifyAuthKey(authKey: Uint8Array, verifier: string): Promise<boolean> {
   await sodium.ready;
-  const asText = sodium.to_base64(authKey, sodium.base64_variants.ORIGINAL);
-  return sodium.crypto_pwhash_str_verify(verifier, asText);
+  if (authKey.length !== KEY_BYTES) return false;
+  const digest = sodium.crypto_hash_sha256(authKey);
+  let expected: Uint8Array;
+  try {
+    expected = sodium.from_base64(verifier, sodium.base64_variants.ORIGINAL);
+  } catch {
+    return false;
+  }
+  if (expected.length !== sodium.crypto_hash_sha256_BYTES) return false;
+  return sodium.memcmp(digest, expected);
 }

@@ -1,14 +1,17 @@
 # @pm/server — zpasswd 同步服务
 
 Cloudflare Workers + Hono + D1（SQLite）。**哑管道**：只做身份校验与密文存取，
-永远不接触明文、主密码、主密钥。唯一的密码学操作是登录时的 argon2id 验签
-（hash-wasm，Workers 原生 WASM）。
+永远不接触明文、主密码、主密钥。唯一的密码学操作是登录时的 SHA-256 验签
+（WebCrypto 原生，微秒级）。
 
 ## 互通约定
 
 - 客户端用 libsodium `crypto_pwhash_str` 对 **base64(ORIGINAL) 编码的 32 字节
-  authKey** 生成 `$argon2id$v=19$...` PHC 字符串，作为 `authVerifier` 上传；
-- 服务端 `argon2Verify({ password: authKeyB64, hash: verifier })` 校验。
+  authKey 的 SHA-256（base64），作为 `authVerifier` 上传；
+- 服务端用 WebCrypto 算 SHA-256 后做恒定时间比较。
+  注：authKey 是 256 位随机密钥，SHA-256 的原像抗性已足够；慢哈希
+  （Argon2id 64MB）只用在客户端主密码 → 主密钥一步，Workers 的 CPU
+  时限跑不动 Argon2。
   `password` 必须是完全相同的字符串（已实测互通）。
 
 ## 本地开发
@@ -56,7 +59,7 @@ wrangler deploy
 ## 安全说明
 
 - 错误信息不区分用户不存在/密码错误；用户不存在时服务端会跑一次同等量级的
-  argon2id（假验签），让两种失败路径耗时不可区分。
+  SHA-256（假验签），让两种失败路径耗时不可区分。
 - 登录限流是按 isolate 的内存 Map，Workers 多实例下为近似限流（已在代码注释）。
 - 已知局限：换密码后，此前签发的 refresh token 在到期前（最长 30 天）仍有效。
   如需"换密码即踢掉所有会话"，给 `refresh_revoked` 加 `user_id` 列并在

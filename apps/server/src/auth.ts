@@ -1,13 +1,17 @@
 /**
- * 认证模块。服务端唯一的密码学操作：argon2id 验签（登录）。
- * 用 hash-wasm（纯 WASM，Workers 原生），不引入 libsodium。
+ * 认证模块。服务端唯一的密码学操作：authKey 验签（登录）。
  *
- * 互通约定（已实测）：客户端用 libsodium crypto_pwhash_str 对
- * base64(ORIGINAL) 编码的 32 字节 authKey 生成 $argon2id$v=19$... PHC
- * 字符串上传为 authVerifier；服务端 argon2Verify({ password: authKeyB64,
- * hash: verifier }) 返回 true/false。password 必须是完全相同的字符串。
+ * 设计取舍（与 @pm/crypto/src/kdf.ts 的 makeAuthVerifier 配套）：
+ * authKey 是 256 位随机密钥，服务端存 SHA-256(authKey) 做校验即可——
+ * 偷库者逆不出 256 位原像，而慢哈希（Argon2id 64MB）在 Workers 的
+ * 10ms CPU 限额下会被直接掐掉。真正的慢哈希保护在客户端
+ * （主密码 → MK 的 Argon2id），服务端只做快速比对。用 WebCrypto 原生实现，
+ * 零依赖、微秒级。
+ *
+ * 互通约定：客户端用 libsodium crypto_hash_sha256(authKey bytes)，
+ * base64(ORIGINAL) 编码后上传为 authVerifier；服务端对提交的 authKeyB64
+ * 解码 → SHA-256 → base64 → 恒定时间比较。
  */
-import { argon2Verify, argon2id } from 'hash-wasm';
 import { jwtVerify, SignJWT } from 'jose';
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
@@ -22,36 +26,62 @@ export type App = Hono<{ Bindings: Env; Variables: { userId: string } }>;
 const ACCESS_TTL = '15m';
 const REFRESH_TTL = '30d';
 
-/** 校验登录提交的 authKey。verifier 畸形时一律返回 false，永不抛异常。 */
+function b64ToBytes(s: string): Uint8Array | null {
+  try {
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function bytesToB64(b: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s);
+}
+
+/** 恒定时间比较（防时序攻击）。 */
+function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+/** 校验登录提交的 authKey。输入畸形时一律返回 false，永不抛异常。 */
 export async function verifyAuthKey(authKeyB64: string, verifier: string): Promise<boolean> {
   try {
-    return await argon2Verify({ password: authKeyB64, hash: verifier });
+    const keyBytes = b64ToBytes(authKeyB64);
+    const expected = b64ToBytes(verifier);
+    if (!keyBytes || keyBytes.length !== 32 || !expected || expected.length !== 32) return false;
+    const digest = new Uint8Array(
+      // 拷贝一份以拿到 ArrayBuffer-backed 的视图，满足 TS 的 BufferSource 类型
+      await crypto.subtle.digest('SHA-256', new Uint8Array(keyBytes)),
+    );
+    return timingSafeEqual(digest, expected);
   } catch {
     return false;
   }
 }
 
 /**
- * 用户不存在时的"假验签"：用同等量级参数跑一次 argon2id，
+ * 用户不存在时的"假验签"：对固定哑值跑一次同样的 SHA-256 流程，
  * 让"用户不存在"与"密码错误"的耗时不可区分，防时序枚举账号。
- * 按 isolate 懒生成一次。
+ * isolate 内懒计算一次（微秒级，开销可忽略）。
  */
-let dummyHash: string | null = null;
+let dummyVerifier: string | null = null;
+
 export async function getDummyVerifier(): Promise<string> {
-  if (!dummyHash) {
-    // 参数与客户端 crypto_pwhash_str(OPSLIMIT_INTERACTIVE, MEMLIMIT_INTERACTIVE)
-    // 同量级（t=2, m=64MB；memorySize 单位为 KiB）
-    dummyHash = await argon2id({
-      password: 'zpasswd-dummy-password',
-      salt: 'zpasswd-dummy-sa',
-      parallelism: 1,
-      iterations: 2,
-      memorySize: 65536,
-      hashLength: 32,
-      outputType: 'encoded',
-    });
+  if (!dummyVerifier) {
+    const digest = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', new TextEncoder().encode('zpasswd-dummy-auth-key')),
+    );
+    dummyVerifier = bytesToB64(digest);
   }
-  return dummyHash;
+  return dummyVerifier;
 }
 
 // ---------------------------------------------------------------- JWT ----

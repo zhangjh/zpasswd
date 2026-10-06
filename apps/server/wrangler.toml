@@ -6,7 +6,7 @@ compatibility_date = "2026-10-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "zpasswd"
-database_id = "REPLACE_AFTER_D1_CREATE"
+database_id = "f645a3c0-e76a-49d9-8c6a-f2ccdbbb6894"
 migrations_dir = "migrations"
 
 # JWT_SECRET 必须用 secret 存：wrangler secret put JWT_SECRET

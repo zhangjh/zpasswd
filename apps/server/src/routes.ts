@@ -94,7 +94,7 @@ export function registerRoutes(app: App) {
       return c.json({ error: 'too many attempts, try later' }, 429);
     }
     const user = await getUserByEmail(c.env.DB, email);
-    // 用户不存在时用假验签跑一次 argon2id，让两种失败路径耗时不可区分
+    // 用户不存在时用假验签跑一次 SHA-256，让两种失败路径耗时不可区分
     const verifier = user ? user.auth_verifier : await getDummyVerifier();
     const ok = await verifyAuthKey(authKeyB64, verifier);
     if (!user || !ok) return c.json({ error: 'invalid credentials' }, 401);
