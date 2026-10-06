@@ -1,0 +1,26 @@
+import { defineManifest } from '@crxjs/vite-plugin';
+
+export default defineManifest({
+  manifest_version: 3,
+  name: 'zpasswd',
+  version: '0.1.0',
+  description: '零知识密码管理器：生成、存储与自动填充，服务端只存密文',
+  action: {
+    default_popup: 'src/popup/index.html',
+    default_title: 'zpasswd',
+  },
+  options_page: 'src/options/index.html',
+  background: {
+    service_worker: 'src/background.ts',
+    type: 'module',
+  },
+  content_scripts: [
+    {
+      matches: ['<all_urls>'],
+      js: ['src/content.ts'],
+    },
+  ],
+  // storage: vault 身份与设置；alarms: 空闲自动锁定；idle 保留供将来精确检测
+  permissions: ['storage', 'alarms', 'idle'],
+  host_permissions: ['<all_urls>'],
+});

@@ -1,0 +1,1 @@
+{"description":"自研零知识密码生成与管理工具：浏览器扩展 + Node.js 同步服务，全 TS 栈","devDependencies":{"typescript":"^5.7.2"},"name":"password-manager","packageManager":"pnpm@9.15.0","private":true,"scripts":{"build":"pnpm -r build","lint":"pnpm -r lint","test":"pnpm -r test"},"version":"0.1.0"}

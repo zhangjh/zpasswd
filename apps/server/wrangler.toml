@@ -1,0 +1,13 @@
+name = "zpasswd-server"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# D1 绑定。database_id 需先 `wrangler d1 create zpasswd` 再回填（见 README）。
+[[d1_databases]]
+binding = "DB"
+database_name = "zpasswd"
+database_id = "REPLACE_AFTER_D1_CREATE"
+migrations_dir = "migrations"
+
+# JWT_SECRET 必须用 secret 存：wrangler secret put JWT_SECRET
+# 本地开发：wrangler dev（.dev.vars 可放 JWT_SECRET，仅本地用，不进 git）
