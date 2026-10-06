@@ -21,22 +21,22 @@ data class ParsedForm(
 object StructureParser {
     fun parse(structure: AssistStructure): ParsedForm? {
         val nodes = structure.windowNodeCount
-        var pkg = ""
         var webDomain: String? = null
         var usernameId: AutofillId? = null
         var passwordId: AutofillId? = null
         val fillable = mutableListOf<AutofillId>()
         val values = mutableMapOf<AutofillId, String>()
 
+        // 请求方包名：ViewNode 没有 packageName 属性，从 AssistStructure.activityComponent 取
+        val pkg = structure.activityComponent?.packageName ?: ""
         for (i in 0 until structure.windowNodeCount) {
             val window = structure.getWindowNodeAt(i)
             val root = window.rootViewNode ?: continue
-            if (pkg.isEmpty()) pkg = root.packageName?.toString() ?: ""
             walk(root, object : NodeVisitor {
                 override fun visit(node: AssistStructure.ViewNode) {
                     val id = node.autofillId ?: return
-                    // WebView 场景：webDomain
-                    if (Build.VERSION.SDK_INT >= 26) {
+                    // WebView 场景：webDomain（API 28+ 才有 getWebDomain）
+                    if (Build.VERSION.SDK_INT >= 28) {
                         node.webDomain?.let { if (webDomain == null) webDomain = it }
                     }
                     val hints = node.autofillHints ?: emptyArray()
