@@ -1,0 +1,25 @@
+{
+  "kdf": {
+    "opslimit": 3,
+    "memlimit": 67108864,
+    "alg": "argon2id13"
+  },
+  "password": "zpasswd-compat-test-password",
+  "salt_hex": "000102030405060708090a0b0c0d0e0f",
+  "masterKey_hex": "a0586f29183883c44d92def6d2c9fb063c524bb854a652b0ac52085a4119fcdd",
+  "subkey_enc_hex": "48d6b9682ada49d6adcc3973bfbd48e1a4d2ccb3fffce57eb8b8201a56d6c784",
+  "subkey_auth_hex": "93f3546f14ce7cbbae6803753ffcc1bf754d3ab3f03e7c7df5731e995de9666f",
+  "subkey_rec_hex": "ea570d2678e12c0fa912b05243824cbfaf8ad2bfd9c75d13c886e01064e2b15c",
+  "authVerifier_b64": "JP3llryi/8mqS253OAhapxKch/FOftsBctGlIEF/Sns=",
+  "aead": {
+    "alg": "xchacha20poly1305-ietf",
+    "key_hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+    "nonce_hex": "000102030405060708090a0b0c0d0e0f1011121314151617",
+    "plaintext": "{\"name\":\"GitHub\",\"username\":\"alice\",\"password\":\"s3cret!\"}",
+    "ciphertext_hex": "fab049b043be8a0e85ed7abaa369e90a7f5e12e7d3f474d04e84ec239eaf09921cb6b8c8a3304f4971f2e63d951866cdb1c622f9b268e17797c984db164b29e43b03764f69311568fa"
+  },
+  "wrappedDekCheck": {
+    "nonce_b64": "f1dudDbBuPkMhjMDJ7P14seoAFU6CHs9",
+    "ciphertext_b64": "9P9jdjwid6jcZ/RTSdFUO2HNuLtAEyeTVB38AYJw3PRsUMnzPQRx8oG1JahAZB1d"
+  }
+}

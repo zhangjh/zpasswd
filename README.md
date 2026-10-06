@@ -12,6 +12,7 @@
 packages/crypto/   # 共享密码学核心：KDF / 信封加密 / AEAD / 密码生成器 / 恢复码
 apps/extension/    # 浏览器扩展（MV3）：popup / options / content-script / background
 apps/server/       # 同步服务（Cloudflare Workers + Hono + D1），"哑管道"只存密文
+apps/android/      # Android 原生 App（Kotlin+Compose）：AutofillService / 指纹解锁 / 同步
 ```
 
 ## 开发

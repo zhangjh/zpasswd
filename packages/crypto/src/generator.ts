@@ -1,7 +1,7 @@
 import sodium from 'libsodium-wrappers-sumo';
 
 export interface GenerateOptions {
-  length?: number; // 默认 24（80 字符集下约 152bit 熵，保底 ≥128bit）
+  length?: number; // 默认 24（81 字符集下约 152bit 熵，保底 ≥128bit）
   uppercase?: boolean; // 默认 true
   lowercase?: boolean; // 默认 true
   digits?: boolean; // 默认 true
