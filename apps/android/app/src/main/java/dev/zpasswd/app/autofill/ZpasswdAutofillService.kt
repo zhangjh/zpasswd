@@ -37,13 +37,13 @@ class ZpasswdAutofillService : AutofillService() {
     override fun onCreate() {
         super.onCreate()
         repo = VaultRepository.get(this)
-        dev.zpasswd.app.ui.UnlockActivity.ServiceRef.service = this
+        dev.zpasswd.app.ui.UnlockActivity.service = this
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (dev.zpasswd.app.ui.UnlockActivity.ServiceRef.service === this) {
-            dev.zpasswd.app.ui.UnlockActivity.ServiceRef.service = null
+        if (dev.zpasswd.app.ui.UnlockActivity.service === this) {
+            dev.zpasswd.app.ui.UnlockActivity.service = null
         }
         scope.cancel()
     }
@@ -161,7 +161,7 @@ class ZpasswdAutofillService : AutofillService() {
         form.usernameId?.let { builder.setValue(it, AutofillValue.forText(item.plain.username)) }
         form.passwordId?.let { builder.setValue(it, AutofillValue.forText(item.plain.password)) }
         if (Build.VERSION.SDK_INT >= 30 && inlineSpec != null) {
-            setInlinePresentation(builder, inlineSpec as android.view.inputmethod.InlinePresentationSpec, form, item, label)
+            setInlinePresentation(builder, inlineSpec as android.widget.inline.InlinePresentationSpec, form, item, label)
         }
         return builder.build()
     }
@@ -169,7 +169,7 @@ class ZpasswdAutofillService : AutofillService() {
     @RequiresApi(30)
     private fun setInlinePresentation(
         builder: Dataset.Builder,
-        spec: android.view.inputmethod.InlinePresentationSpec,
+        spec: android.widget.inline.InlinePresentationSpec,
         form: ParsedForm,
         item: ItemWithPlain,
         label: String,
@@ -188,12 +188,15 @@ class ZpasswdAutofillService : AutofillService() {
                     addText(item.plain.username, null, listOf("subtitle"))
                 }
             }.build()
-            val inlinePresentation = android.view.inputmethod.InlinePresentation(
-                slice, spec, null, false,
+            val inlinePresentation = android.service.autofill.InlinePresentation(
+                slice, spec, false,
             )
             form.usernameId?.let {
                 builder.setValue(
-                    it, AutofillValue.forText(item.plain.username), inlinePresentation,
+                    it,
+                    AutofillValue.forText(item.plain.username),
+                    remotePresentation(label),
+                    inlinePresentation,
                 )
             }
         } catch (_: Exception) {

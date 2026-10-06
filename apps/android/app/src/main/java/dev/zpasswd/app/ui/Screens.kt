@@ -1,6 +1,6 @@
-package dev.zpasswd.app.ui
-
 @file:OptIn(ExperimentalMaterial3Api::class)
+
+package dev.zpasswd.app.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
