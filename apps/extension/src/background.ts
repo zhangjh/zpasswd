@@ -13,7 +13,7 @@ import {
   wipe,
   wrapDek,
 } from '@pm/crypto';
-import { clearAllData, clearSyncState, getDb, getSyncState } from './lib/db';
+import { clearAllData, clearSyncState, getDb, getSyncState, saveSyncState } from './lib/db';
 import { connectSync, DEFAULT_SERVER_URL, runSync } from './lib/sync';
 import { b64decode, b64encode, etldPlusOneOfUrl } from './lib/util';
 import type { BgRequest, BgResponse, Status } from './lib/messages';
@@ -302,7 +302,6 @@ async function handle(req: BgRequest): Promise<unknown> {
 
       // 6. 保存同步状态并拉取
       const deviceName = settings.deviceName;
-      const { saveSyncState } = await import('./lib/db');
       await saveSyncState({
         serverUrl: base,
         email,
