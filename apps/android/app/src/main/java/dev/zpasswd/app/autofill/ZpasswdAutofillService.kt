@@ -2,6 +2,10 @@ package dev.zpasswd.app.autofill
 
 import android.app.PendingIntent
 import android.app.assist.AssistStructure
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.CancellationSignal
@@ -17,6 +21,8 @@ import android.view.autofill.AutofillManager
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
 import androidx.annotation.RequiresApi
+import dev.zpasswd.app.MainActivity
+import dev.zpasswd.app.R
 import dev.zpasswd.app.data.ItemWithPlain
 import dev.zpasswd.app.data.VaultRepository
 import kotlinx.coroutines.*
@@ -224,16 +230,58 @@ class ZpasswdAutofillService : AutofillService() {
             callback.onSuccess(); return
         }
         scope.launch {
-            // 记为待保存，由 App 内展示确认（避免后台静默写 vault）
-            PendingSave.offer(
-                PendingCredential(
-                    packageName = form.packageName,
-                    webDomain = form.webDomain,
-                    username = username,
-                    password = password,
-                ),
+            // 记为待保存：先入队，再发通知把用户拉回 App 确认（避免后台静默写 vault）
+            val pending = PendingCredential(
+                packageName = form.packageName,
+                webDomain = form.webDomain,
+                username = username,
+                password = password,
             )
+            PendingSave.offer(pending)
+            postSaveNotification(pending)
             withContext(Dispatchers.Main) { callback.onSuccess() }
+        }
+    }
+
+    companion object {
+        private const val SAVE_CHANNEL_ID = "zpasswd_save"
+        private const val SAVE_NOTIFICATION_ID = 1001
+    }
+
+    /** 发一条"保存新登录凭证"通知，点通知回到 App 确认入库。失败不影响主流程（横幅兜底仍在）。 */
+    private fun postSaveNotification(pending: PendingCredential) {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(
+                    NotificationChannel(
+                        SAVE_CHANNEL_ID,
+                        "保存凭证提醒",
+                        NotificationManager.IMPORTANCE_DEFAULT,
+                    ),
+                )
+            }
+            val label = pending.webDomain ?: pending.packageName
+            val openApp = PendingIntent.getActivity(
+                this,
+                0,
+                Intent(this, MainActivity::class.java).apply {
+                    action = "dev.zpasswd.app.ACTION_PENDING_SAVE"
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notification = Notification.Builder(this, SAVE_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("保存新登录凭证？")
+                .setContentText(
+                    "检测到 ${label}${if (pending.username.isNotBlank()) "（${pending.username}）" else ""} 的新登录，点击保存到保险库",
+                )
+                .setContentIntent(openApp)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(SAVE_NOTIFICATION_ID, notification)
+        } catch (_: Exception) {
         }
     }
 
