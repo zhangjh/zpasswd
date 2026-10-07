@@ -645,7 +645,19 @@ chrome.runtime.onMessage.addListener(
         chrome.tabs
           .sendMessage(tabId, msg, { frameId: 0 })
           .then(() => sendResponse({ ok: true, data: null }))
-          .catch((e: unknown) => sendResponse({ ok: false, error: String(e) }));
+          .catch(async (e: unknown) => {
+            // 顶层 frame 转发失败（如无 content script）：降级为系统通知，避免只剩角标
+            try {
+              const s = await chrome.storage.session.get('pendingSave');
+              const pending = s.pendingSave as { url?: string; username?: string } | undefined;
+              if (pending?.url) {
+                await notifySavePrompt(pending.url, pending.username ?? '');
+              }
+            } catch {
+              // 忽略降级失败
+            }
+            sendResponse({ ok: false, error: String(e) });
+          });
       }
       return true;
     }
