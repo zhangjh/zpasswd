@@ -19,6 +19,10 @@ import dev.zpasswd.app.data.VaultRepository
 class UnlockActivity : FragmentActivity() {
     companion object {
         const val EXTRA_AUTOFILL_MODE = "autofill_mode"
+
+        /** 进程内 service 引用（service onCreate 时注册）。 */
+        @Volatile
+        var service: ZpasswdAutofillService? = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,11 +61,5 @@ class UnlockActivity : FragmentActivity() {
         finish()
     }
 
-    /** 进程内 service 引用（service onCreate 时注册）。 */
-    companion object ServiceRef {
-        @Volatile
-        var service: ZpasswdAutofillService? = null
-    }
-
-    private fun lastServiceRef(): ZpasswdAutofillService? = ServiceRef.service
+    private fun lastServiceRef(): ZpasswdAutofillService? = service
 }
