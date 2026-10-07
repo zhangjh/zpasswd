@@ -71,7 +71,10 @@ dependencies {
 
     // libsodium JNI（含 crypto_pwhash Argon2id / crypto_kdf / XChaCha20-Poly1305）
     // 注意：正确坐标是 com.goterl:lazysodium-android（groupId 无连字符后缀）
-    implementation("com.goterl:lazysodium-android:5.2.0")
+    implementation("com.goterl:lazysodium-android:5.2.0") {
+        // 排除它传下来的 JNA JAR（只含 class、无 native so），下面用 @aar 显式引入
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
     // JNA 必须强制 AAR：它在 Maven 上的 packaging 是 jar，Gradle 传解决到 JAR 时
     // native 的 libjnidispatch.so 不会打进 APK，运行时 SodiumAndroid 初始化直接崩溃
     // （UnsatisfiedLinkError: libjnidispatch.so not found）。@aar 强制取 AAR 变体。
