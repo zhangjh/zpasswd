@@ -1,8 +1,11 @@
 import { bg } from './lib/messages';
 import type { Credential } from './lib/types';
 
-// 跨域 iframe 直接退出：不读取、不填充，防止钓鱼页嵌套。
-// 注意：跨域时访问 window.top.location 本身就会抛异常，统一视为不可信。
+// 跨域 iframe 策略：
+// - 填充（FILL）：只在顶层或同源 frame 跑，防止钓鱼页嵌套时误填。
+// - 保存检测（SAVE）：所有 frame 都跑，用各自 frame 自己的 URL 记录
+//   （如 126 邮箱登录框在 iframe 里；用 iframe 自身 URL 关联凭证是安全的，
+//   不会把凭证记到顶层页面名下）。
 const IS_TOP_OR_SAME_ORIGIN_FRAME: boolean = (() => {
   const top = window.top;
   try {
@@ -13,8 +16,13 @@ const IS_TOP_OR_SAME_ORIGIN_FRAME: boolean = (() => {
   }
 })();
 
-if (IS_TOP_OR_SAME_ORIGIN_FRAME) {
-  init();
+init();
+
+function init(): void {
+  initSaveDetection(); // 所有 frame 都跑保存检测
+  if (IS_TOP_OR_SAME_ORIGIN_FRAME) {
+    initFill(); // 填充只在顶层/同源跑
+  }
 }
 
 function isVisible(el: HTMLElement): boolean {
@@ -203,7 +211,8 @@ function fillCredential(field: HTMLInputElement, cred: Credential): void {
   field.focus();
 }
 
-function init(): void {
+/** 填充：密码框聚焦 → 查询匹配凭证并弹浮层（仅顶层/同源 frame） */
+function initFill(): void {
   // 密码框聚焦 → 查询匹配凭证
   document.addEventListener('focusin', async (e) => {
     const t = e.target as HTMLElement;
@@ -222,7 +231,10 @@ function init(): void {
       // background 未就绪等情况静默忽略
     }
   });
+}
 
+/** 保存检测：所有 frame 都跑，用各自 frame 自己的 URL */
+function initSaveDetection(): void {
   // 表单提交：传统表单与 React 受控表单（仍触发原生 submit）都能抓到。
   // 只做同步抓值 + 单条 fire-and-forget 消息，不在 content 端做解锁/去重判断
   // （background 统一处理），避免页面跳转中断多次异步往返导致记录丢失。

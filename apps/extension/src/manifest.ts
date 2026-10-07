@@ -29,6 +29,9 @@ export default defineManifest({
     {
       matches: ['<all_urls>'],
       js: ['src/content.ts'],
+      // 登录框经常在 iframe 里（如 126 邮箱）：所有 frame 都注入，
+      // 保存检测在各 frame 用自身 URL 跑，填充仍只在顶层/同源跑（content.ts 内控制）
+      all_frames: true,
     },
   ],
   // storage: vault 身份与设置；alarms: 空闲自动锁定；idle 保留供将来精确检测
