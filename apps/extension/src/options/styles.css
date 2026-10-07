@@ -1,0 +1,49 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0;
+  font: 14px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #14141f; color: #e8e8f0;
+  min-height: 100vh;
+}
+#root { max-width: 680px; margin: 0 auto; padding: 24px 20px 48px; }
+h2 { margin: 0 0 16px; font-size: 20px; }
+h3 { margin: 20px 0 10px; font-size: 15px; color: #9fd; }
+input[type="text"], input[type="password"], input[type="url"], input[type="number"], textarea, select {
+  width: 100%; padding: 8px 10px; margin: 4px 0;
+  background: #1f1f30; border: 1px solid #3a3a55; border-radius: 6px; color: #eee;
+  font-size: 14px;
+}
+input:focus, textarea:focus { outline: none; border-color: #6c6cf5; }
+textarea { resize: vertical; min-height: 52px; }
+button {
+  padding: 8px 16px; border: 0; border-radius: 6px; cursor: pointer;
+  background: #4a4ae0; color: #fff; font-size: 14px;
+}
+button:hover { background: #5a5af0; }
+button:disabled { opacity: .5; cursor: default; }
+button.ghost { background: #2a2a40; }
+button.ghost:hover { background: #34345a; }
+button.danger { background: #a33327; }
+button.small { padding: 4px 8px; font-size: 12px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row > * { flex: 1; }
+.row > .fit { flex: 0 0 auto; }
+.err { color: #ff8a80; margin: 8px 0; }
+.okmsg { color: #9fd; margin: 8px 0; }
+.hint { color: #888; font-size: 13px; margin: 6px 0; }
+.item {
+  background: #1f1f30; border: 1px solid #2e2e48; border-radius: 8px;
+  padding: 8px 10px; margin: 6px 0;
+  overflow: hidden; min-width: 0;
+}
+.item .name { font-weight: 600; }
+.item .sub { color: #999; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.toolbar { display: flex; gap: 6px; margin-bottom: 8px; }
+.toolbar input { flex: 1; margin: 0; }
+section { border-top: 1px solid #2a2a40; padding-top: 8px; margin-top: 16px; }
+label.f { display: block; margin: 8px 0 2px; color: #aaa; font-size: 13px; }
+.mono { font-family: ui-monospace, monospace; word-break: break-all; }
+.words { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; }
+.words span { background: #1f1f30; border: 1px solid #3a3a55; border-radius: 6px; padding: 6px 4px; text-align: center; }
+.words span i { color: #666; font-style: normal; margin-right: 4px; font-size: 11px; }

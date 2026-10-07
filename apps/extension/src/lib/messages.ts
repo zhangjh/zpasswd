@@ -26,6 +26,7 @@ export type BgRequest =
   | { type: 'RECORD_PENDING_SAVE'; entry: Omit<PendingSave, 'createdAt'>; quiet?: boolean }
   | { type: 'CONSUME_PENDING_SAVE' }
   | { type: 'CONFIRM_PENDING_SAVE' }
+  | { type: 'SHOW_SAVE_PROMPT'; username: string }
   | { type: 'DISMISS_PENDING_SAVE' }
   | { type: 'RESET_VAULT' };
 

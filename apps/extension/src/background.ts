@@ -524,6 +524,11 @@ async function handle(req: BgRequest): Promise<unknown> {
       return { ok: true };
     }
 
+    case 'SHOW_SAVE_PROMPT': {
+      // 实际在 onMessage listener 里直接处理（需要 sender.tab），到这里说明逻辑有误
+      throw fail('SHOW_SAVE_PROMPT 不应走 handle()');
+    }
+
     default: {
       const _exhaustive: never = req;
       throw fail(`未知消息：${JSON.stringify(_exhaustive)}`);
@@ -537,7 +542,22 @@ async function handle(req: BgRequest): Promise<unknown> {
 const sessionReady = restoreSession();
 
 chrome.runtime.onMessage.addListener(
-  (req: BgRequest, _sender, sendResponse: (r: BgResponse) => void) => {
+  (req: BgRequest, sender, sendResponse: (r: BgResponse) => void) => {
+    // SHOW_SAVE_PROMPT 需要 sender 的 tab 信息，直接在此处理（转发到该 tab 的顶层 frame）
+    if ((req as { type?: string }).type === 'SHOW_SAVE_PROMPT') {
+      const tabId = sender.tab?.id;
+      const username = (req as { username?: string }).username ?? '';
+      if (tabId === undefined) {
+        sendResponse({ ok: false, error: '无 tab 信息' });
+      } else {
+        const msg = { type: 'SHOW_SAVE_PROMPT', username } as unknown as never;
+        chrome.tabs
+          .sendMessage(tabId, msg, { frameId: 0 })
+          .then(() => sendResponse({ ok: true, data: null }))
+          .catch((e: unknown) => sendResponse({ ok: false, error: String(e) }));
+      }
+      return true;
+    }
     sessionReady
       .then(() => handle(req))
       .then((data) => sendResponse({ ok: true, data }))

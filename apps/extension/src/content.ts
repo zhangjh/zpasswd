@@ -23,6 +23,17 @@ function init(): void {
   if (IS_TOP_OR_SAME_ORIGIN_FRAME) {
     initFill(); // 填充只在顶层/同源跑
   }
+  // 顶层 frame：接收来自 iframe 的保存确认框显示请求
+  if (window.self === window.top) {
+    chrome.runtime.onMessage.addListener((msg: unknown) => {
+      if (
+        typeof msg === 'object' && msg !== null &&
+        (msg as { type?: string }).type === 'SHOW_SAVE_PROMPT'
+      ) {
+        showSavePrompt((msg as { username?: string }).username ?? '');
+      }
+    });
+  }
 }
 
 function isVisible(el: HTMLElement): boolean {
@@ -127,8 +138,26 @@ function checkTrackedPasswords(): void {
       } catch {
         // ignore
       }
-      // SPA 页内场景：记录后弹确认框（页面没跳转，用户正看着）
-      captureWithKnownValue(field, known.password, username, true);
+      // SPA 页内场景：记录后弹确认框（页面没跳转，用户正看着）。
+      // 跨域 iframe 里不直接弹（看不见），转由顶层 frame 显示。
+      const isTop = (() => {
+        try {
+          return window.self === window.top;
+        } catch {
+          return false;
+        }
+      })();
+      if (isTop) {
+        captureWithKnownValue(field, known.password, username, true);
+      } else {
+        bg({
+          type: 'RECORD_PENDING_SAVE',
+          entry: { url: window.location.href, username, password: known.password },
+          quiet: true,
+        })
+          .then(() => bg({ type: 'SHOW_SAVE_PROMPT', username }))
+          .catch(() => undefined);
+      }
     } else if (!field.isConnected || field.value !== known.password) {
       // submit 已处理过，仅清理跟踪
       trackedPw.delete(field);

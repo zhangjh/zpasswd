@@ -1,7 +1,7 @@
 * { box-sizing: border-box; }
 body {
   margin: 0; padding: 0;
-  width: 380px; max-width: 380px; max-height: 560px;
+  width: 420px; max-width: 420px; max-height: 580px;
   font: 13px/1.5 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   background: #14141f; color: #e8e8f0;
   overflow-x: hidden;
@@ -63,7 +63,13 @@ label.f { display: block; margin: 8px 0 2px; color: #aaa; font-size: 12px; }
 .gen-entropy { font-size: 12px; margin-left: 8px; }
 .gen-entropy.good { color: #9fd; }
 .gen-entropy.warn { color: #ffb74d; }
-.footer { display: flex; gap: 6px; margin-top: 10px; justify-content: space-between; align-items: center; }
+.footer { display: flex; gap: 8px; margin-top: 10px; justify-content: space-between; align-items: center; }
+.footer .hint {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.footer .row { flex-shrink: 0; }
+.footer button { white-space: nowrap; }
 .linklike { background: none; color: #9fd; padding: 4px; }
 .mono { font-family: ui-monospace, monospace; word-break: break-all; }
 .words { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; }
