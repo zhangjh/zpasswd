@@ -14,7 +14,7 @@ import {
   wrapDek,
 } from '@pm/crypto';
 import { clearAllData, clearSyncState, getDb, getSyncState } from './lib/db';
-import { connectSync, runSync } from './lib/sync';
+import { connectSync, DEFAULT_SERVER_URL, runSync } from './lib/sync';
 import { b64decode, b64encode, etldPlusOneOfUrl } from './lib/util';
 import type { BgRequest, BgResponse, Status } from './lib/messages';
 import {
@@ -220,6 +220,98 @@ async function handle(req: BgRequest): Promise<unknown> {
       mk = nmk;
       dek = ndek;
       await persistSession();
+      return { ok: true };
+    }
+
+    case 'RESTORE_FROM_SYNC': {
+      // 从同步服务器恢复 vault（新设备 / 重装后）。
+      // 注意：本地已有 vault 会被覆盖（先清空），因为不同 salt 派生的密钥互不兼容。
+      const email = req.email.trim().toLowerCase();
+      if (!email) throw fail('请填写邮箱');
+      const settings = await getSettings();
+      const base = (settings.serverUrl || DEFAULT_SERVER_URL).replace(/\/$/, '');
+
+      // 1. 取服务器上的 salt 与 wrappedDek
+      let saltRes: Response;
+      try {
+        saltRes = await fetch(`${base}/v1/auth/salt?email=${encodeURIComponent(email)}`);
+      } catch {
+        throw fail('无法连接同步服务器，请检查网络与服务器地址');
+      }
+      if (saltRes.status === 404) throw fail('该邮箱没有同步账号，请检查邮箱，或先在原设备上连接同步');
+      if (!saltRes.ok) throw fail(`获取账号信息失败：HTTP ${saltRes.status}`);
+      const { kdfSalt, wrappedDek } = (await saltRes.json()) as {
+        kdfSalt: string;
+        wrappedDek: { nonce: string; ciphertext: string };
+      };
+
+      // 2. 用服务器的 salt 派生 MK（与原设备一致）
+      const salt = b64decode(kdfSalt);
+      const nmk = await deriveMasterKey(req.password, salt);
+      const authKey = await deriveSubkey(nmk, 'auth');
+
+      // 3. 登录验证主密码
+      let loginRes: Response;
+      try {
+        loginRes = await fetch(`${base}/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, authKeyB64: b64encode(authKey) }),
+        });
+      } catch {
+        wipe(nmk);
+        wipe(authKey);
+        throw fail('无法连接同步服务器');
+      }
+      if (!loginRes.ok) {
+        wipe(nmk);
+        wipe(authKey);
+        throw fail('主密码不正确');
+      }
+      const { accessJwt, refreshJwt } = (await loginRes.json()) as {
+        accessJwt: string;
+        refreshJwt: string;
+      };
+
+      // 4. 解出 DEK
+      const kek = await deriveSubkey(nmk, 'enc');
+      let ndek: Uint8Array;
+      try {
+        ndek = await unwrapDek(kek, wrappedDek);
+      } catch {
+        wipe(nmk);
+        wipe(kek);
+        wipe(authKey);
+        throw fail('恢复失败：无法解开数据密钥');
+      }
+      wipe(kek);
+      wipe(authKey);
+
+      // 5. 覆盖本地（清空旧 vault 数据与同步状态）
+      await clearAllData();
+      await clearSyncState();
+      const check = await encryptItem(ndek, VAULT_CHECK);
+      await chrome.storage.local.set({
+        [LS_KEY.SALT]: kdfSalt,
+        [LS_KEY.WRAPPED_DEK]: wrappedDek,
+        [LS_KEY.VAULT_CHECK]: check,
+      });
+      mk = nmk;
+      dek = ndek;
+      await persistSession();
+
+      // 6. 保存同步状态并拉取
+      const deviceName = settings.deviceName;
+      const { saveSyncState } = await import('./lib/db');
+      await saveSyncState({
+        serverUrl: base,
+        email,
+        deviceId: crypto.randomUUID(),
+        deviceName,
+        accessJwt,
+        refreshJwt,
+        lastSyncAt: '',
+      });
       return { ok: true };
     }
 

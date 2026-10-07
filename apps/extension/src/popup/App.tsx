@@ -32,6 +32,8 @@ function CreateVault({ onDone }: { onDone: () => void }) {
   const [pw2, setPw2] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<'create' | 'restore'>('create');
+  const [email, setEmail] = useState('');
 
   const submit = async () => {
     setErr('');
@@ -56,26 +58,93 @@ function CreateVault({ onDone }: { onDone: () => void }) {
     }
   };
 
+  const submitRestore = async () => {
+    setErr('');
+    if (!email.trim()) {
+      setErr('请填写同步邮箱');
+      return;
+    }
+    if (!pw) {
+      setErr('请填写主密码');
+      return;
+    }
+    setBusy(true);
+    try {
+      await bg({ type: 'RESTORE_FROM_SYNC', email: email.trim(), password: pw });
+      setPw('');
+      setEmail('');
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div>
       <h2>🔐 zpasswd</h2>
-      <p className="hint">
-        首次使用：设置主密码。主密码只用于本地派生密钥，永不上传、
-        永不存储明文。忘记主密码且无恢复码 = 数据永久丢失。
-      </p>
-      <label className="f">主密码</label>
-      <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
-      <label className="f">确认主密码</label>
-      <input
-        type="password"
-        value={pw2}
-        onChange={(e) => setPw2(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && void submit()}
-      />
-      {err && <div className="err">{err}</div>}
-      <button onClick={() => void submit()} disabled={busy} style={{ marginTop: 8, width: '100%' }}>
-        {busy ? '正在派生密钥（约 1 秒）…' : '创建本地 vault'}
-      </button>
+      {mode === 'create' ? (
+        <>
+          <p className="hint">
+            首次使用：设置主密码。主密码只用于本地派生密钥，永不上传、
+            永不存储明文。忘记主密码且无恢复码 = 数据永久丢失。
+          </p>
+          <label className="f">主密码</label>
+          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
+          <label className="f">确认主密码</label>
+          <input
+            type="password"
+            value={pw2}
+            onChange={(e) => setPw2(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void submit()}
+          />
+          {err && <div className="err">{err}</div>}
+          <button onClick={() => void submit()} disabled={busy} style={{ marginTop: 8, width: '100%' }}>
+            {busy ? '正在派生密钥（约 1 秒）…' : '创建本地 vault'}
+          </button>
+          <div style={{ marginTop: 12, textAlign: 'center' }}>
+            <button className="linklike" onClick={() => { setMode('restore'); setErr(''); }}>
+              已有同步账号？从服务器恢复
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="hint">
+            从同步服务器恢复 vault（换设备 / 重装后）。需要同步邮箱和主密码。
+            恢复会用服务器的数据，本地如有 vault 会被覆盖。
+          </p>
+          <label className="f">同步邮箱</label>
+          <input
+            type="text"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoFocus
+            autoComplete="off"
+          />
+          <label className="f">主密码</label>
+          <input
+            type="password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void submitRestore()}
+          />
+          {err && <div className="err">{err}</div>}
+          <button
+            onClick={() => void submitRestore()}
+            disabled={busy}
+            style={{ marginTop: 8, width: '100%' }}
+          >
+            {busy ? '正在从服务器恢复…' : '从服务器恢复'}
+          </button>
+          <div style={{ marginTop: 12, textAlign: 'center' }}>
+            <button className="linklike" onClick={() => { setMode('create'); setErr(''); }}>
+              返回创建新 vault
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

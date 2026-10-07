@@ -4,6 +4,7 @@ import type { Credential, ItemMeta, PendingSave, Settings, VaultItemPlain } from
 /** background service worker 的消息协议 */
 export type BgRequest =
   | { type: 'CREATE_VAULT'; password: string }
+  | { type: 'RESTORE_FROM_SYNC'; email: string; password: string }
   | { type: 'UNLOCK'; password: string }
   | { type: 'VERIFY_PASSWORD'; password: string }
   | { type: 'LOCK' }

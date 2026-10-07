@@ -104,6 +104,20 @@ export function registerRoutes(app: App) {
     return c.json({ accessJwt, refreshJwt });
   });
 
+  // ------------------------------------------ 取 KDF 参数（新设备从同步恢复用） ----
+  // 公开接口：salt 与 wrappedDek 不是秘密（没有主密码谁也解不开）。
+  // 不存在的邮箱返回 404，客户端据此提示"该邮箱没有同步账号"。
+  app.get('/v1/auth/salt', async (c) => {
+    const email = (c.req.query('email') ?? '').toLowerCase();
+    if (!isValidEmail(email)) return c.json({ error: 'invalid request' }, 400);
+    const user = await getUserByEmail(c.env.DB, email);
+    if (!user) return c.json({ error: 'not found' }, 404);
+    return c.json({
+      kdfSalt: user.kdf_salt,
+      wrappedDek: { nonce: user.wrapped_dek_nonce, ciphertext: user.wrapped_dek_ct },
+    });
+  });
+
   // ------------------------------------------------------ refresh ----
   app.post('/v1/auth/refresh', async (c) => {
     const body = await readJson(c);
