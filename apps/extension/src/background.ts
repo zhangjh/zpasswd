@@ -129,6 +129,26 @@ async function setSaveBadge(on: boolean): Promise<void> {
   }
 }
 
+/** 锁定中收到保存请求：不静默丢弃，发通知告诉用户解锁后可保存（点击打开 popup） */
+async function notifyLockedSave(url: string): Promise<void> {
+  try {
+    let host = url;
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      // keep raw
+    }
+    await chrome.notifications.create('zpasswd-locked-save', {
+      type: 'basic',
+      iconUrl: 'icons/icon-48.png',
+      title: 'zpasswd：检测到新登录',
+      message: `保险库已锁定，解锁后可保存 ${host} 的登录信息`,
+    });
+  } catch {
+    // 忽略（如通知被禁用）
+  }
+}
+
 async function hasVault(): Promise<boolean> {
   const s = await chrome.storage.local.get(LS_KEY.SALT);
   return typeof s[LS_KEY.SALT] === 'string';
@@ -409,9 +429,12 @@ async function handle(req: BgRequest): Promise<unknown> {
     }
 
     case 'RECORD_PENDING_SAVE': {
-      // 未解锁时静默忽略；已存在的凭证不重复提示。只放内存级 session storage，不落盘。
-      // content 端只做同步抓值 + 单条消息（页面可能正在卸载），解锁检查与去重都在这里做。
-      if (!isUnlocked()) return { ok: true };
+      // 未解锁时不静默丢弃：发通知引导用户解锁（解锁后重新登录一次即可保存）。
+      // 解锁检查与去重都在这里做，content 端只做同步抓值 + 单条消息。
+      if (!isUnlocked()) {
+        await notifyLockedSave(req.entry.url);
+        return { ok: true };
+      }
       const username = req.entry.username ?? '';
       const creds = await credentialsForUrl(req.entry.url);
       if (creds.some((c) => c.username === username)) return { ok: true };
@@ -457,14 +480,30 @@ async function handle(req: BgRequest): Promise<unknown> {
 
 // ---------- 启动 ----------
 
+// SW 启动时恢复会话；消息处理等待恢复完成，避免竞态导致误判未解锁
+const sessionReady = restoreSession();
+
 chrome.runtime.onMessage.addListener(
   (req: BgRequest, _sender, sendResponse: (r: BgResponse) => void) => {
-    handle(req)
+    sessionReady
+      .then(() => handle(req))
       .then((data) => sendResponse({ ok: true, data }))
       .catch((e: unknown) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }));
     return true; // 保持异步响应通道
   },
 );
+
+// 锁定提醒通知：点击打开 popup（用户解锁后重新登录一次即可保存）
+chrome.notifications.onClicked.addListener((id) => {
+  if (id !== 'zpasswd-locked-save') return;
+  try {
+    // clear 在部分类型定义中返回 void，不链式调用
+    void chrome.notifications.clear(id);
+  } catch {
+    // ignore
+  }
+  chrome.action.openPopup().catch(() => undefined);
+});
 
 // 空闲自动锁定：每分钟检查一次
 chrome.alarms.create('zpasswd-autolock', { periodInMinutes: 1 });
@@ -477,7 +516,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-void restoreSession();
+void sessionReady;
 
 // SW 重启后恢复待保存提示的小红点
 void chrome.storage.session.get('pendingSave').then((s) => {
