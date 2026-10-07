@@ -321,6 +321,10 @@ function RecoverySection() {
 function DangerZone() {
   const [confirm, setConfirm] = useState('');
   const [msg, setMsg] = useState('');
+  const [rEmail, setREmail] = useState('');
+  const [rPw, setRPw] = useState('');
+  const [rBusy, setRBusy] = useState(false);
+  const [rMsg, setRMsg] = useState('');
 
   const reset = async () => {
     if (confirm.trim().toUpperCase() !== 'DELETE') {
@@ -332,6 +336,25 @@ function DangerZone() {
     setMsg('已删除。请关闭本页，重新点击扩展图标创建新 vault。');
   };
 
+  const restore = async () => {
+    setRMsg('');
+    if (!rEmail.trim() || !rPw) {
+      setRMsg('请填写同步邮箱和主密码');
+      return;
+    }
+    if (!window.confirm('从服务器恢复会覆盖本地 vault（本地未同步的数据将丢失），继续吗？')) return;
+    setRBusy(true);
+    try {
+      await bg({ type: 'RESTORE_FROM_SYNC', email: rEmail.trim(), password: rPw });
+      setRMsg('恢复成功！请关闭本页，重新点击扩展图标。');
+      setRPw('');
+    } catch (e) {
+      setRMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRBusy(false);
+    }
+  };
+
   return (
     <section>
       <h3 style={{ color: '#ff8a80' }}>危险区</h3>
@@ -339,7 +362,7 @@ function DangerZone() {
       <div className="row">
         <input
           type="text"
-          placeholder='输入 DELETE 确认'
+          placeholder="输入 DELETE 确认"
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
         />
@@ -348,6 +371,21 @@ function DangerZone() {
         </button>
       </div>
       {msg && <div className="hint">{msg}</div>}
+
+      <h3 style={{ color: '#ff8a80', marginTop: 16 }}>从同步恢复</h3>
+      <p className="hint">
+        换设备 / 重装后：用同步邮箱 + 主密码从服务器恢复 vault，会覆盖本地数据。
+      </p>
+      <label className="f">同步邮箱</label>
+      <input type="text" value={rEmail} onChange={(e) => setREmail(e.target.value)} autoComplete="off" />
+      <label className="f">主密码</label>
+      <input type="password" value={rPw} onChange={(e) => setRPw(e.target.value)} />
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="danger" onClick={() => void restore()} disabled={rBusy}>
+          {rBusy ? '恢复中…' : '从服务器恢复（覆盖本地）'}
+        </button>
+      </div>
+      {rMsg && <div className="hint">{rMsg}</div>}
     </section>
   );
 }
