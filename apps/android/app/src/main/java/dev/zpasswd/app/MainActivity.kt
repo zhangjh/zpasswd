@@ -2,7 +2,6 @@ package dev.zpasswd.app
 
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.fragment.app.FragmentActivity
@@ -19,17 +18,15 @@ import kotlinx.coroutines.launch
  * 简单手写导航：unlock → list → detail/edit/settings。
  */
 class MainActivity : FragmentActivity() {
-    private val notifPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Android 13+：保存凭证提醒通知需要运行时权限，一次性申请
+        // Android 13+：保存凭证提醒通知需要运行时权限，一次性申请。
+        // 用 framework 原生 requestPermissions（API 23+），不依赖 androidx.activity.result。
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
         val repo = (application as ZpasswdApp).repo
         setContent {
