@@ -71,6 +71,51 @@ function captureAndSend(pw: HTMLInputElement): void {
   });
 }
 
+/** 用已知的最后一次值抓取（字段可能已从 DOM 移除） */
+function captureWithKnownValue(pw: HTMLInputElement, password: string, username: string): void {
+  bg({
+    type: 'RECORD_PENDING_SAVE',
+    entry: { url: window.location.href, username, password },
+  }).catch(() => {
+    // 静默忽略
+  });
+}
+
+// SPA 登录检测：跟踪密码框的最后一次值；字段被移除或值被 JS 清空时视为一次登录提交。
+// 覆盖无原生 submit、无页面跳转的 JS 登录（如 126 邮箱这类）。
+const trackedPw = new Map<HTMLInputElement, { password: string; username: string }>();
+
+function trackPasswordInput(e: Event): void {
+  const t = e.target;
+  if (!(t instanceof HTMLInputElement) || t.type !== 'password' || t.readOnly || t.disabled) return;
+  if (t.value) {
+    const userField = findUsernameField(t);
+    trackedPw.set(t, { password: t.value, username: userField?.value ?? '' });
+  } else {
+    trackedPw.delete(t);
+  }
+}
+
+function checkTrackedPasswords(): void {
+  for (const [field, known] of trackedPw) {
+    // 字段被移除，或值被 JS 清空/改掉 → 视为登录提交（submit 已处理过的跳过）
+    if ((!field.isConnected || field.value !== known.password) && !submitSeen) {
+      trackedPw.delete(field);
+      // 用户名尽量取实时值（可能还在 DOM 里），取不到用跟踪到的
+      let username = known.username;
+      try {
+        if (field.isConnected) username = findUsernameField(field)?.value ?? known.username;
+      } catch {
+        // ignore
+      }
+      captureWithKnownValue(field, known.password, username);
+    } else if (!field.isConnected || field.value !== known.password) {
+      // submit 已处理过，仅清理跟踪
+      trackedPw.delete(field);
+    }
+  }
+}
+
 function closePanel(): void {
   panelEl?.remove();
   panelEl = null;
@@ -202,4 +247,16 @@ function init(): void {
     if (!pw || !pw.value || !isVisible(pw)) return;
     captureAndSend(pw);
   });
+
+  // SPA 无跳转登录：密码框被移除或值被 JS 清空时，视为一次登录提交。
+  // （如 126 邮箱：JS 提交、无原生 submit、无页面跳转）
+  document.addEventListener('input', trackPasswordInput, true);
+  const pwObserver = new MutationObserver(() => {
+    try {
+      checkTrackedPasswords();
+    } catch {
+      // 忽略
+    }
+  });
+  pwObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
