@@ -101,6 +101,34 @@ async function decryptPlain(box: Pick<StoredItem, 'nonce' | 'ciphertext'>): Prom
   return JSON.parse(await decryptItem(requireDek(), box)) as VaultItemPlain;
 }
 
+/** 内部：按 eTLD+1 取某 URL 的已存凭证（不检查锁定，调用方负责） */
+async function credentialsForUrl(url: string): Promise<Credential[]> {
+  const target = etldPlusOneOfUrl(url);
+  const creds: Credential[] = [];
+  if (!target) return creds;
+  const db = await getDb();
+  const all = await db.getAll('items');
+  for (const it of all) {
+    if (it.deletedAt) continue;
+    const plain = await decryptPlain(it);
+    if (!plain.url) continue;
+    if (etldPlusOneOfUrl(plain.url) === target && plain.password) {
+      creds.push({ id: it.id, username: plain.username, password: plain.password });
+    }
+  }
+  return creds;
+}
+
+/** 待保存提示的小红点：有未处理的保存提示时显示 */
+async function setSaveBadge(on: boolean): Promise<void> {
+  try {
+    await chrome.action.setBadgeText({ text: on ? '1' : '' });
+    if (on) await chrome.action.setBadgeBackgroundColor({ color: '#1B2A4A' });
+  } catch {
+    // 忽略（如 action 不可用）
+  }
+}
+
 async function hasVault(): Promise<boolean> {
   const s = await chrome.storage.local.get(LS_KEY.SALT);
   return typeof s[LS_KEY.SALT] === 'string';
@@ -240,21 +268,7 @@ async function handle(req: BgRequest): Promise<unknown> {
     case 'GET_CREDENTIALS': {
       // 锁定状态下直接返回空，不泄露任何信息
       if (!isUnlocked()) return { locked: true, credentials: [] as Credential[] };
-      const target = etldPlusOneOfUrl(req.url);
-      const creds: Credential[] = [];
-      if (target) {
-        const db = await getDb();
-        const all = await db.getAll('items');
-        for (const it of all) {
-          if (it.deletedAt) continue;
-          const plain = await decryptPlain(it);
-          if (!plain.url) continue;
-          if (etldPlusOneOfUrl(plain.url) === target && plain.password) {
-            creds.push({ id: it.id, username: plain.username, password: plain.password });
-          }
-        }
-      }
-      return { locked: false, credentials: creds };
+      return { locked: false, credentials: await credentialsForUrl(req.url) };
     }
 
     case 'ADD_ITEM': {
@@ -395,9 +409,20 @@ async function handle(req: BgRequest): Promise<unknown> {
     }
 
     case 'RECORD_PENDING_SAVE': {
-      // 只放内存级 session storage，不落盘
-      const entry: PendingSave = { ...req.entry, createdAt: Date.now() };
+      // 未解锁时静默忽略；已存在的凭证不重复提示。只放内存级 session storage，不落盘。
+      // content 端只做同步抓值 + 单条消息（页面可能正在卸载），解锁检查与去重都在这里做。
+      if (!isUnlocked()) return { ok: true };
+      const username = req.entry.username ?? '';
+      const creds = await credentialsForUrl(req.entry.url);
+      if (creds.some((c) => c.username === username)) return { ok: true };
+      const entry: PendingSave = {
+        url: req.entry.url,
+        username,
+        password: req.entry.password,
+        createdAt: Date.now(),
+      };
       await chrome.storage.session.set({ pendingSave: entry });
+      await setSaveBadge(true);
       return { ok: true };
     }
 
@@ -405,11 +430,13 @@ async function handle(req: BgRequest): Promise<unknown> {
       const sess = await chrome.storage.session.get('pendingSave');
       const p = (sess.pendingSave as PendingSave | undefined) ?? null;
       await chrome.storage.session.remove('pendingSave');
+      await setSaveBadge(false);
       return p;
     }
 
     case 'DISMISS_PENDING_SAVE': {
       await chrome.storage.session.remove('pendingSave');
+      await setSaveBadge(false);
       return { ok: true };
     }
 
@@ -451,3 +478,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 void restoreSession();
+
+// SW 重启后恢复待保存提示的小红点
+void chrome.storage.session.get('pendingSave').then((s) => {
+  if (s.pendingSave) void setSaveBadge(true);
+});

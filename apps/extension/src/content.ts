@@ -55,6 +55,21 @@ function setNativeValue(el: HTMLInputElement, value: string): void {
 }
 
 let panelEl: HTMLElement | null = null;
+let submitSeen = false;
+
+/**
+ * 同步抓取值并单发一条 RECORD_PENDING_SAVE（不 await）。
+ * 解锁检查与去重由 background 统一做；页面可能正在卸载，单条消息尽力送达即可。
+ */
+function captureAndSend(pw: HTMLInputElement): void {
+  const userField = findUsernameField(pw);
+  bg({
+    type: 'RECORD_PENDING_SAVE',
+    entry: { url: window.location.href, username: userField?.value ?? '', password: pw.value },
+  }).catch(() => {
+    // 静默忽略（background 未就绪 / 页面卸载中）
+  });
+}
 
 function closePanel(): void {
   panelEl?.remove();
@@ -163,34 +178,28 @@ function init(): void {
     }
   });
 
-  // 表单提交后：凭证是新的 → 记一条待保存提醒（popup 下次打开提示）
+  // 表单提交：传统表单与 React 受控表单（仍触发原生 submit）都能抓到。
+  // 只做同步抓值 + 单条 fire-and-forget 消息，不在 content 端做解锁/去重判断
+  // （background 统一处理），避免页面跳转中断多次异步往返导致记录丢失。
   document.addEventListener(
     'submit',
-    async (e) => {
+    (e) => {
       const form = e.target;
       if (!(form instanceof HTMLFormElement)) return;
       const pw = form.querySelector<HTMLInputElement>('input[type="password"]');
       if (!pw || !pw.value) return;
-      try {
-        const status = await bg<{ unlocked: boolean } & Record<string, unknown>>({ type: 'GET_STATUS' });
-        if (!status.unlocked) return;
-        const userField = findUsernameField(pw);
-        const username = userField?.value ?? '';
-        const res = await bg<{ credentials: Credential[] }>({
-          type: 'GET_CREDENTIALS',
-          url: window.location.href,
-        });
-        const exists = res.credentials.some((c) => c.username === username);
-        if (!exists) {
-          await bg({
-            type: 'RECORD_PENDING_SAVE',
-            entry: { url: window.location.href, username, password: pw.value },
-          });
-        }
-      } catch {
-        // 静默忽略
-      }
+      submitSeen = true;
+      captureAndSend(pw);
     },
     true,
   );
+
+  // SPA 兜底：无原生 submit 的登录（如 div 拼的表单 + fetch 提交）在页面卸载时抓一次。
+  // submit 已处理过的跳过，避免重复记录。
+  window.addEventListener('pagehide', () => {
+    if (submitSeen) return;
+    const pw = document.querySelector<HTMLInputElement>('input[type="password"]');
+    if (!pw || !pw.value || !isVisible(pw)) return;
+    captureAndSend(pw);
+  });
 }
