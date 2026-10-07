@@ -23,4 +23,9 @@ export default defineManifest({
   // storage: vault 身份与设置；alarms: 空闲自动锁定；idle 保留供将来精确检测
   permissions: ['storage', 'alarms', 'idle'],
   host_permissions: ['<all_urls>'],
+  // libsodium 跑在 WebAssembly 上；MV3 默认 CSP（script-src 'self'）会拦截
+  // WebAssembly.instantiate，必须显式放行 wasm-unsafe-eval（作用于扩展页与 SW）
+  content_security_policy: {
+    extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
+  },
 });
