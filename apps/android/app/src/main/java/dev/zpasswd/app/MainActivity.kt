@@ -89,7 +89,11 @@ fun AppNav(activity: FragmentActivity, repo: VaultRepository) {
             onItemClick = { route = Route.Detail(it) },
             onAdd = { route = Route.Edit(null) },
             onSettings = { route = Route.Settings },
-            onPendingSaveConsumed = { },
+            onPendingSaveConsumed = {
+                // 消费掉队首，避免下次回到前台重复弹出
+                dev.zpasswd.app.autofill.PendingSave.poll()
+                resumeTick++
+            },
         )
         is Route.Detail -> ItemDetailScreen(
             repo = repo,
