@@ -3,6 +3,9 @@ import { getDb, getSyncState, saveSyncState, type SyncState } from './db';
 import { CONFLICT_FOLDER_ID, CONFLICT_FOLDER_NAME, type StoredItem, type VaultItemPlain } from './types';
 import { b64encode } from './util';
 
+/** 默认同步服务器（Cloudflare Workers 官方后端）；用户可在设置中改为自建地址 */
+export const DEFAULT_SERVER_URL = 'https://zpasswd-server.favlink.workers.dev';
+
 /**
  * 与同步服务端的 REST 契约（需与 apps/server 对齐）：
  *

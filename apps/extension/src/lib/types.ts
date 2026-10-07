@@ -42,7 +42,7 @@ export interface Credential {
 export interface Settings {
   /** 空闲多少分钟后自动锁定 */
   idleMinutes: number;
-  /** 同步服务器地址，为空 = 纯本地模式 */
+  /** 同步服务器地址，为空 = 尚未连接同步 */
   serverUrl: string;
   email: string;
   deviceName: string;

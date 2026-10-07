@@ -937,7 +937,7 @@ fun SettingsScreen(
 private fun SyncSection(activity: FragmentActivity, repo: VaultRepository) {
     val scope = rememberCoroutineScope()
     var syncState by remember { mutableStateOf<dev.zpasswd.app.data.SyncStateEntity?>(null) }
-    var serverUrl by remember { mutableStateOf("") }
+    var serverUrl by remember { mutableStateOf(dev.zpasswd.app.sync.DEFAULT_SERVER_URL) }
     var email by remember { mutableStateOf("") }
     var deviceName by remember { mutableStateOf(android.os.Build.MODEL ?: "Android") }
     var busy by remember { mutableStateOf(false) }
@@ -1007,8 +1007,14 @@ private fun SyncSection(activity: FragmentActivity, repo: VaultRepository) {
                     ) { Text("断开") }
                 }
             } else {
+                Text(
+                    "默认使用官方 Cloudflare 同步服务（只存密文）。填写邮箱后连接，即可在多设备间同步。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it },
-                    label = { Text("服务器地址") }, placeholder = { Text("https://…") },
+                    label = { Text("服务器地址") }, placeholder = { Text(dev.zpasswd.app.sync.DEFAULT_SERVER_URL) },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
                 Spacer(Modifier.height(8.dp))

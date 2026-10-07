@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { bg, type Status } from '../lib/messages';
+import { DEFAULT_SERVER_URL } from '../lib/sync';
 import type { Settings, VaultItemPlain } from '../lib/types';
 import { download, parseCsv } from '../lib/util';
 
@@ -77,7 +78,8 @@ function SyncSettings({ onChanged }: { onChanged: () => void }) {
 
   useEffect(() => {
     void bg<Settings>({ type: 'GET_SETTINGS' }).then((s) => {
-      setServerUrl(s.serverUrl);
+      // 未配置过则预填官方默认服务器，用户只需填邮箱即可连接
+      setServerUrl(s.serverUrl || DEFAULT_SERVER_URL);
       setEmail(s.email);
       setConnected(!!s.serverUrl);
     });
@@ -114,15 +116,15 @@ function SyncSettings({ onChanged }: { onChanged: () => void }) {
     <section>
       <h3>同步服务</h3>
       <p className="hint">
-        可选。自建同步服务只存储密文，即使服务器被攻破也解不开你的密码。
-        不填则为纯本地模式。
+        默认使用官方 Cloudflare 同步服务（只存储密文，服务器解不开你的密码）。
+        也可改为自建地址。填写邮箱后点「连接并同步」即可多设备同步。
       </p>
       <label className="f">服务器地址</label>
       <input
         type="text"
         value={serverUrl}
         onChange={(e) => setServerUrl(e.target.value)}
-        placeholder="https://sync.example.com"
+        placeholder={DEFAULT_SERVER_URL}
         autoComplete="off"
       />
       <label className="f">邮箱（同步账号标识）</label>

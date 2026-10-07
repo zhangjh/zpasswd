@@ -41,6 +41,9 @@ data class RejectedItem(val id: String, val item: ServerItem)
 
 data class SyncResult(val skipped: Boolean = false, val pushed: Int = 0, val pulled: Int = 0, val conflicts: Int = 0)
 
+/** 默认同步服务器（Cloudflare Workers 官方后端）；用户可在设置中改为自建地址 */
+const val DEFAULT_SERVER_URL = "https://zpasswd-server.favlink.workers.dev"
+
 /**
  * 同步引擎。逻辑与扩展端 sync.ts 的 runSync/connectSync 逐行对应。
  */

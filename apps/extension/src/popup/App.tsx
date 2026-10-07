@@ -163,7 +163,7 @@ function VaultView({ status, onStatusChange }: { status: Status; onStatusChange:
       });
       setMsg(
         r.skipped
-          ? '未配置同步服务（纯本地模式）'
+          ? '尚未连接同步服务，请到设置中填写邮箱并连接'
           : `同步完成：推送 ${r.pushed} / 拉取 ${r.pulled}` +
             (r.conflicts ? ` / 冲突 ${r.conflicts} 条已移入「同步冲突」` : ''),
       );
@@ -283,7 +283,7 @@ function VaultView({ status, onStatusChange }: { status: Status; onStatusChange:
       ))}
 
       <div className="footer">
-        <span className="hint">{status.syncConfigured ? `已连接同步${status.syncEmail ? ` · ${status.syncEmail}` : ''}` : '纯本地模式'}</span>
+        <span className="hint">{status.syncConfigured ? `已连接同步${status.syncEmail ? ` · ${status.syncEmail}` : ''}` : '未连接同步'}</span>
         <span className="row fit" style={{ gap: 6 }}>
           <button className="small ghost" onClick={() => void doSync()}>
             同步
