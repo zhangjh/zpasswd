@@ -79,14 +79,25 @@ function captureAndSend(pw: HTMLInputElement): void {
   });
 }
 
-/** 用已知的最后一次值抓取（字段可能已从 DOM 移除） */
-function captureWithKnownValue(pw: HTMLInputElement, password: string, username: string): void {
+/** 用已知的最后一次值抓取（字段可能已从 DOM 移除）；SPA 页内场景会再弹确认框 */
+function captureWithKnownValue(
+  pw: HTMLInputElement,
+  password: string,
+  username: string,
+  showPrompt: boolean,
+): void {
   bg({
     type: 'RECORD_PENDING_SAVE',
     entry: { url: window.location.href, username, password },
-  }).catch(() => {
-    // 静默忽略
-  });
+    // 页内弹确认框时不再发系统通知，避免双重打扰
+    quiet: showPrompt,
+  })
+    .then(() => {
+      if (showPrompt) showSavePrompt(username);
+    })
+    .catch(() => {
+      // 静默忽略
+    });
 }
 
 // SPA 登录检测：跟踪密码框的最后一次值；字段被移除或值被 JS 清空时视为一次登录提交。
@@ -116,7 +127,8 @@ function checkTrackedPasswords(): void {
       } catch {
         // ignore
       }
-      captureWithKnownValue(field, known.password, username);
+      // SPA 页内场景：记录后弹确认框（页面没跳转，用户正看着）
+      captureWithKnownValue(field, known.password, username, true);
     } else if (!field.isConnected || field.value !== known.password) {
       // submit 已处理过，仅清理跟踪
       trackedPw.delete(field);
@@ -127,6 +139,90 @@ function checkTrackedPasswords(): void {
 function closePanel(): void {
   panelEl?.remove();
   panelEl = null;
+}
+
+let savePromptEl: HTMLElement | null = null;
+
+function closeSavePrompt(): void {
+  savePromptEl?.remove();
+  savePromptEl = null;
+}
+
+/** SPA 页内保存确认框：右上角浮层，Shadow DOM 样式隔离 */
+function showSavePrompt(username: string): void {
+  closeSavePrompt();
+  const host = document.createElement('div');
+  host.id = 'zpasswd-save-host';
+  const shadow = host.attachShadow({ mode: 'closed' });
+  const style = document.createElement('style');
+  style.textContent = `
+    .zp-save { position: fixed; z-index: 2147483647; top: 16px; right: 16px;
+               background: #1a1a2e; color: #eee; border: 1px solid #4a4ae0; border-radius: 10px;
+               padding: 12px 14px; font: 13px/1.5 system-ui, sans-serif;
+               box-shadow: 0 6px 24px rgba(0,0,0,.5); max-width: 300px; }
+    .zp-save .t { font-weight: 600; margin-bottom: 4px; }
+    .zp-save .u { color: #9fd; margin-bottom: 8px; word-break: break-all; }
+    .zp-save .row { display: flex; gap: 8px; justify-content: flex-end; }
+    .zp-save button { padding: 6px 14px; border: 0; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .zp-save .ok { background: #4a4ae0; color: #fff; }
+    .zp-save .ok:hover { background: #5a5af0; }
+    .zp-save .no { background: #2a2a40; color: #ccc; }
+    .zp-save .no:hover { background: #34345a; }
+    .zp-save .done { color: #9fd; }
+  `;
+  const box = document.createElement('div');
+  box.className = 'zp-save';
+
+  const title = document.createElement('div');
+  title.className = 't';
+  title.textContent = 'zpasswd：检测到新登录';
+  const user = document.createElement('div');
+  user.className = 'u';
+  user.textContent = username ? `账号：${username}` : '是否保存到保险库？';
+  const row = document.createElement('div');
+  row.className = 'row';
+
+  const btnOk = document.createElement('button');
+  btnOk.className = 'ok';
+  btnOk.textContent = '保存';
+  btnOk.onclick = async (e) => {
+    e.stopPropagation();
+    btnOk.textContent = '保存中…';
+    try {
+      await bg({ type: 'CONFIRM_PENDING_SAVE' });
+      box.innerHTML = '';
+      const done = document.createElement('div');
+      done.className = 'done';
+      done.textContent = '✓ 已保存到保险库';
+      box.appendChild(done);
+      setTimeout(closeSavePrompt, 1500);
+    } catch {
+      btnOk.textContent = '保存失败，请在扩展弹窗中保存';
+    }
+  };
+  const btnNo = document.createElement('button');
+  btnNo.className = 'no';
+  btnNo.textContent = '忽略';
+  btnNo.onclick = (e) => {
+    e.stopPropagation();
+    bg({ type: 'DISMISS_PENDING_SAVE' }).catch(() => undefined);
+    closeSavePrompt();
+  };
+  row.appendChild(btnNo);
+  row.appendChild(btnOk);
+  box.appendChild(title);
+  box.appendChild(user);
+  box.appendChild(row);
+
+  shadow.appendChild(style);
+  shadow.appendChild(box);
+  document.documentElement.appendChild(host);
+  savePromptEl = host;
+
+  // 10 秒无操作自动收起（待保存仍在，可通过角标/弹窗补救）
+  setTimeout(() => {
+    if (savePromptEl === host) closeSavePrompt();
+  }, 10000);
 }
 
 /** 在密码框旁用 Shadow DOM 渲染填充浮层（样式隔离，不被页面 CSS 污染） */

@@ -129,6 +129,46 @@ async function setSaveBadge(on: boolean): Promise<void> {
   }
 }
 
+/** 内部：创建一条 vault 条目，返回 id（ADD_ITEM 与 CONFIRM_PENDING_SAVE 共用） */
+async function createItem(item: VaultItemPlain, folderId: string | null): Promise<string> {
+  const d = requireDek();
+  const db = await getDb();
+  const box = await encryptItem(d, JSON.stringify(item));
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  await db.put('items', {
+    id,
+    ...box,
+    version: 1,
+    folderId: folderId ?? null,
+    favorite: false,
+    updatedAt: now,
+    deletedAt: null,
+    dirty: true,
+  });
+  return id;
+}
+
+/** 有新登录待保存时发系统通知（点击打开 popup 确认）；quiet 时跳过（如页内已弹确认框） */
+async function notifySavePrompt(url: string, username: string): Promise<void> {
+  try {
+    let host = url;
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      // keep raw
+    }
+    await chrome.notifications.create('zpasswd-save-prompt', {
+      type: 'basic',
+      iconUrl: 'icons/icon-48.png',
+      title: 'zpasswd：保存新登录信息？',
+      message: `检测到 ${host}${username ? `（${username}）` : ''} 的新登录，点击保存到保险库`,
+    });
+  } catch {
+    // 忽略（如通知被禁用）
+  }
+}
+
 /** 锁定中收到保存请求：不静默丢弃，发通知告诉用户解锁后可保存（点击打开 popup） */
 async function notifyLockedSave(url: string): Promise<void> {
   try {
@@ -292,21 +332,7 @@ async function handle(req: BgRequest): Promise<unknown> {
     }
 
     case 'ADD_ITEM': {
-      const d = requireDek();
-      const db = await getDb();
-      const box = await encryptItem(d, JSON.stringify(req.item));
-      const now = new Date().toISOString();
-      const id = crypto.randomUUID();
-      await db.put('items', {
-        id,
-        ...box,
-        version: 1,
-        folderId: req.folderId ?? null,
-        favorite: false,
-        updatedAt: now,
-        deletedAt: null,
-        dirty: true,
-      });
+      const id = await createItem(req.item, req.folderId ?? null);
       return { id };
     }
 
@@ -446,7 +472,34 @@ async function handle(req: BgRequest): Promise<unknown> {
       };
       await chrome.storage.session.set({ pendingSave: entry });
       await setSaveBadge(true);
+      // 主动触达：非 quiet 时再发一条系统通知（quiet 表示调用方页内已弹确认框）
+      if (!req.quiet) await notifySavePrompt(entry.url, entry.username);
       return { ok: true };
+    }
+
+    case 'CONFIRM_PENDING_SAVE': {
+      // 页内确认框点了"保存"：直接消费并入库（与 popup 的保存按钮等价）
+      const sess = await chrome.storage.session.get('pendingSave');
+      const p = (sess.pendingSave as PendingSave | undefined) ?? null;
+      if (!p) throw fail('没有待保存的登录信息');
+      await chrome.storage.session.remove('pendingSave');
+      await setSaveBadge(false);
+      try {
+        void chrome.notifications.clear('zpasswd-save-prompt');
+      } catch {
+        // ignore
+      }
+      let site = p.url;
+      try {
+        site = new URL(p.url).hostname;
+      } catch {
+        // keep raw
+      }
+      const id = await createItem(
+        { name: site, username: p.username, password: p.password, url: p.url, notes: '', totpSeed: '' },
+        null,
+      );
+      return { id };
     }
 
     case 'CONSUME_PENDING_SAVE': {
@@ -493,9 +546,9 @@ chrome.runtime.onMessage.addListener(
   },
 );
 
-// 锁定提醒通知：点击打开 popup（用户解锁后重新登录一次即可保存）
+// 保存相关通知：点击打开 popup（用户确认入库）
 chrome.notifications.onClicked.addListener((id) => {
-  if (id !== 'zpasswd-locked-save') return;
+  if (id !== 'zpasswd-locked-save' && id !== 'zpasswd-save-prompt') return;
   try {
     // clear 在部分类型定义中返回 void，不链式调用
     void chrome.notifications.clear(id);

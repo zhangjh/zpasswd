@@ -23,8 +23,9 @@ export type BgRequest =
   | { type: 'GET_SETTINGS' }
   | { type: 'SAVE_SETTINGS'; settings: Partial<Settings> }
   | { type: 'GET_RECOVERY_MNEMONIC' }
-  | { type: 'RECORD_PENDING_SAVE'; entry: Omit<PendingSave, 'createdAt'> }
+  | { type: 'RECORD_PENDING_SAVE'; entry: Omit<PendingSave, 'createdAt'>; quiet?: boolean }
   | { type: 'CONSUME_PENDING_SAVE' }
+  | { type: 'CONFIRM_PENDING_SAVE' }
   | { type: 'DISMISS_PENDING_SAVE' }
   | { type: 'RESET_VAULT' };
 
