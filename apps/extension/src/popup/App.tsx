@@ -222,8 +222,8 @@ function VaultView({ status, onStatusChange }: { status: Status; onStatusChange:
       {pending && (
         <div className="banner">
           <div>
-            检测到新登录：<b>{pending.url}</b>
-            {pending.username ? ` / ${pending.username}` : ''}
+            检测到新登录：<b>{pending.username || '(无用户名)'}</b>
+            <span className="url" title={pending.url}>{pending.url}</span>
           </div>
           <div className="row" style={{ marginTop: 6 }}>
             <button className="small" onClick={() => void savePending()}>
