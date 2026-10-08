@@ -277,6 +277,41 @@ function showSavePrompt(username: string): void {
   }, 10000);
 }
 
+/** 面板定位（position: fixed，用纯视口坐标，不加 scroll 偏移）：
+ *  首选放在输入框正下方；下方空间不足且上方放得下时翻到上方，
+ *  绝不遮住输入框本身——否则鼠标松开时 mouseup 落在面板上，
+ *  click 事件的 target 会变成公共祖先而非输入框，导致面板被误关。 */
+function placePanel(box: HTMLElement, field: HTMLInputElement): void {
+  const rect = field.getBoundingClientRect();
+  const w = box.offsetWidth;
+  const h = box.offsetHeight;
+  let top = rect.bottom + 4;
+  if (top + h > window.innerHeight && rect.top - h - 4 >= 0) {
+    top = rect.top - h - 4; // 下方放不下，翻到上方
+  } else {
+    top = Math.max(4, Math.min(top, window.innerHeight - h - 4));
+  }
+  const left = Math.max(4, Math.min(rect.left, window.innerWidth - w - 4));
+  box.style.top = `${top}px`;
+  box.style.left = `${left}px`;
+}
+
+/**
+ * 「点击空白处关闭」：用 capture 阶段的 mousedown 而不是 click。
+ * click 的 target 是 mousedown/mouseup 目标的最近公共祖先（面板盖住输入框时
+ * 松手 target 就不是输入框了）；mousedown 的 target 恒为实际按下的元素。
+ * 触发本次 focusin 的 mousedown 早已派发完毕，不存在误关竞态。
+ */
+function dismissOnOutsideDown(host: HTMLElement): void {
+  const onDown = (ev: MouseEvent) => {
+    if (!host.contains(ev.target as Node)) {
+      closePanel();
+      document.removeEventListener('mousedown', onDown, true);
+    }
+  };
+  document.addEventListener('mousedown', onDown, true);
+}
+
 /** 无已存密码时：提供生成强密码（注册场景） */
 function showGeneratePanel(field: HTMLInputElement): void {
   closePanel();
@@ -301,9 +336,6 @@ function showGeneratePanel(field: HTMLInputElement): void {
   `;
   const box = document.createElement('div');
   box.className = 'zp';
-  const rect = field.getBoundingClientRect();
-  box.style.top = `${Math.min(rect.bottom + window.scrollY + 4, window.innerHeight - 200)}px`;
-  box.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 260)}px`;
 
   const title = document.createElement('div');
   title.className = 'zp-title';
@@ -361,17 +393,8 @@ function showGeneratePanel(field: HTMLInputElement): void {
   shadow.append(style, box);
   document.documentElement.appendChild(host);
   panelEl = host;
-
-  // 点击面板外空白处关闭；同样放行触发面板的那次点击
-  setTimeout(() => {
-    document.addEventListener('click', function dismiss(ev) {
-      if (ev.target === field) return;
-      if (!host.contains(ev.target as Node)) {
-        closePanel();
-        document.removeEventListener('click', dismiss);
-      }
-    });
-  }, 0);
+  placePanel(box, field);
+  dismissOnOutsideDown(host);
 }
 
 /** 填密码框：设值并触发 input 事件（兼容 React 受控组件） */
@@ -418,9 +441,6 @@ function showFillPanel(field: HTMLInputElement, creds: Credential[]): void {
   `;
   const box = document.createElement('div');
   box.className = 'zp';
-  const rect = field.getBoundingClientRect();
-  box.style.top = `${Math.min(rect.bottom + window.scrollY + 4, window.innerHeight - 160)}px`;
-  box.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 240)}px`;
 
   const title = document.createElement('div');
   title.className = 'zp-title';
@@ -453,18 +473,8 @@ function showFillPanel(field: HTMLInputElement, creds: Credential[]): void {
   shadow.appendChild(box);
   document.documentElement.appendChild(host);
   panelEl = host;
-
-  setTimeout(() => {
-    document.addEventListener('click', function dismiss(ev) {
-      // 触发面板的那一次点击（聚焦密码框）事件还在冒泡中：放行，否则面板
-      // 刚打开就会被这次点击关掉，表现为"一闪而过没法操作"。
-      if (ev.target === field) return;
-      if (!host.contains(ev.target as Node)) {
-        closePanel();
-        document.removeEventListener('click', dismiss);
-      }
-    });
-  }, 0);
+  placePanel(box, field);
+  dismissOnOutsideDown(host);
   document.addEventListener(
     'keydown',
     function esc(ev) {
@@ -529,9 +539,6 @@ function showLockedHint(field: HTMLInputElement): void {
   `;
   const box = document.createElement('div');
   box.className = 'zp';
-  const rect = field.getBoundingClientRect();
-  box.style.top = `${Math.min(rect.bottom + window.scrollY + 4, window.innerHeight - 120)}px`;
-  box.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 240)}px`;
   const txt = document.createElement('div');
   txt.textContent = '🔒 zpasswd 已锁定';
   const btn = document.createElement('button');
@@ -541,6 +548,7 @@ function showLockedHint(field: HTMLInputElement): void {
   shadow.append(style, box);
   document.documentElement.appendChild(host);
   panelEl = host;
+  placePanel(box, field);
   // 5 秒自动收起
   setTimeout(() => {
     if (panelEl === host) closePanel();
