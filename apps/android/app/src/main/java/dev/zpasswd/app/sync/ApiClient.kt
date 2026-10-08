@@ -18,31 +18,41 @@ import java.util.concurrent.TimeUnit
  * PUT /v1/items/batch {items} -> {accepted[], rejected[{id, item}]}
  */
 class ApiClient {
-    private val json = Json { ignoreUnknownKeys = true }
+    @PublishedApi
+    internal val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
-    private val mt = "application/json".toMediaType()
+    @PublishedApi
+    internal val mt = "application/json".toMediaType()
 
     data class HttpResult(val code: Int, val body: String)
 
-    fun post(base: String, path: String, payload: Any, token: String? = null): HttpResult {
-        val body = json.encodeToString(payload).toRequestBody(mt)
-        return exec(base, path, "POST", body, token)
+    /**
+     * payload 必须用 reified 泛型：在调用处按实参的静态类型（LoginReq、
+     * SignupReq 等 @Serializable 类）由编译器生成序列化器。
+     * 若声明为 Any，运行时会报 "Serializer for class 'Any' is not found"。
+     */
+    @PublishedApi
+    internal inline fun <reified T> encodeBody(payload: T): okhttp3.RequestBody =
+        json.encodeToString(payload).toRequestBody(mt)
+
+    inline fun <reified T> post(base: String, path: String, payload: T, token: String? = null): HttpResult {
+        return exec(base, path, "POST", encodeBody(payload), token)
     }
 
-    fun put(base: String, path: String, payload: Any, token: String): HttpResult {
-        val body = json.encodeToString(payload).toRequestBody(mt)
-        return exec(base, path, "PUT", body, token)
+    inline fun <reified T> put(base: String, path: String, payload: T, token: String): HttpResult {
+        return exec(base, path, "PUT", encodeBody(payload), token)
     }
 
     fun get(base: String, path: String, token: String? = null): HttpResult {
         return exec(base, path, "GET", null, token)
     }
 
-    private fun exec(
+    @PublishedApi
+    internal fun exec(
         base: String, path: String, method: String,
         body: okhttp3.RequestBody?, token: String?,
     ): HttpResult {
