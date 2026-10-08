@@ -137,7 +137,7 @@ function trackPasswordInput(e: Event): void {
   }
 }
 
-function checkTrackedPasswords(): void {
+async function checkTrackedPasswords(): Promise<void> {
   for (const [field, known] of trackedPw) {
     // 字段被移除，或值被 JS 清空/改掉 → 视为登录提交（submit 已处理过的跳过）
     if ((!field.isConnected || field.value !== known.password) && !submitSeen) {
@@ -159,8 +159,23 @@ function checkTrackedPasswords(): void {
         }
       })();
       if (isTop) {
+        // 先打标（同步），再发消息：即使页面立刻跳转，新页面也能重弹
+        try {
+          await chrome.storage.session.set({
+            savePopup: { username, url: window.location.href, at: Date.now() },
+          });
+        } catch {
+          // 忽略
+        }
         captureWithKnownValue(field, known.password, username, true);
       } else {
+        try {
+          await chrome.storage.session.set({
+            savePopup: { username, url: window.location.href, at: Date.now() },
+          });
+        } catch {
+          // 忽略
+        }
         bg({
           type: 'RECORD_PENDING_SAVE',
           entry: { url: window.location.href, username, password: known.password },
@@ -409,11 +424,9 @@ function initSaveDetection(): void {
   // （如 126 邮箱：JS 提交、无原生 submit、无页面跳转）
   document.addEventListener('input', trackPasswordInput, true);
   const pwObserver = new MutationObserver(() => {
-    try {
-      checkTrackedPasswords();
-    } catch {
+    void checkTrackedPasswords().catch(() => {
       // 忽略
-    }
+    });
   });
   pwObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
