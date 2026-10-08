@@ -564,6 +564,16 @@ async function handle(req: BgRequest): Promise<unknown> {
       await chrome.storage.session.set({ pendingSave: entry });
       await setSaveBadge(true);
       // 主动触达：非 quiet 时再发一条系统通知（quiet 表示调用方页内已弹确认框）
+      // quiet 时设置标志：登录后若页面跳转，新页面加载时重新弹出确认框
+      if (req.quiet) {
+        try {
+          await chrome.storage.session.set({
+            savePopup: { username, url: entry.url, at: Date.now() },
+          });
+        } catch {
+          // 忽略
+        }
+      }
       if (!req.quiet) await notifySavePrompt(entry.url, entry.username);
       return { ok: true };
     }

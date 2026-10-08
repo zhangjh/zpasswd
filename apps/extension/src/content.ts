@@ -33,6 +33,17 @@ function init(): void {
         showSavePrompt((msg as { username?: string }).username ?? '');
       }
     });
+    // 登录后页面跳转导致确认框被销毁：在新页面重新弹出（15 秒内有效）
+    void chrome.storage.session
+      .get('savePopup')
+      .then((s) => {
+        const sp = s.savePopup as { username?: string; at?: number } | undefined;
+        if (sp?.at && Date.now() - sp.at < 15000) {
+          void chrome.storage.session.remove('savePopup');
+          showSavePrompt(sp.username ?? '');
+        }
+      })
+      .catch(() => undefined);
   }
 }
 
@@ -175,6 +186,12 @@ let savePromptEl: HTMLElement | null = null;
 function closeSavePrompt(): void {
   savePromptEl?.remove();
   savePromptEl = null;
+  // 清除"跳转后重弹"标志，避免用户已处理后又冒出来
+  try {
+    void chrome.storage.session.remove('savePopup');
+  } catch {
+    // 忽略
+  }
 }
 
 /** SPA 页内保存确认框：右上角浮层，Shadow DOM 样式隔离 */
