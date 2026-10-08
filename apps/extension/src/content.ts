@@ -6,23 +6,11 @@ import type { Credential } from './lib/types';
 // - 保存检测（SAVE）：所有 frame 都跑，用各自 frame 自己的 URL 记录
 //   （如 126 邮箱登录框在 iframe 里；用 iframe 自身 URL 关联凭证是安全的，
 //   不会把凭证记到顶层页面名下）。
-const IS_TOP_OR_SAME_ORIGIN_FRAME: boolean = (() => {
-  const top = window.top;
-  try {
-    if (top === null || top === window.self) return top === window.self;
-    return top.location.origin === window.location.origin;
-  } catch {
-    return false;
-  }
-})();
-
 init();
 
 function init(): void {
   initSaveDetection(); // 所有 frame 都跑保存检测
-  if (IS_TOP_OR_SAME_ORIGIN_FRAME) {
-    initFill(); // 填充只在顶层/同源跑
-  }
+  initFill(); // 所有 frame 都跑填充：用各自 frame 的 URL 做 eTLD+1 匹配，防钓鱼边界由匹配保证
   // 顶层 frame：接收来自 iframe 的保存确认框显示请求
   if (window.self === window.top) {
     chrome.runtime.onMessage.addListener((msg: unknown) => {
