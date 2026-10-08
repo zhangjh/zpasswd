@@ -271,6 +271,26 @@ class VaultRepository private constructor(val db: ZpasswdDb) {
         lock()
     }
 
+    /**
+     * 从服务器恢复：清空本地条目/文件夹/同步状态，装入服务器的 salt 与
+     * wrappedDek 并锁定（调用方随后用主密码 unlock）。指纹存的是旧 DEK，
+     * 一并清除，避免旧指纹数据残留；空闲锁定分钟数等偏好设置予以保留。
+     */
+    suspend fun installServerVault(saltB64: String, wrappedDek: WrappedDekJson): Unit =
+        withContext(Dispatchers.IO) {
+            lock()
+            db.itemDao().clear()
+            db.folderDao().clear()
+            db.syncStateDao().clear()
+            db.metaDao().remove(KEY_SALT)
+            db.metaDao().remove(KEY_WRAPPED_DEK)
+            db.metaDao().remove(KEY_BIOMETRIC_DEK)
+            db.metaDao().put(MetaEntity(KEY_SALT, saltB64))
+            db.metaDao().put(
+                MetaEntity(KEY_WRAPPED_DEK, json.encodeToString(wrappedDek)),
+            )
+        }
+
     companion object {
         const val KEY_SALT = "salt"
         const val KEY_WRAPPED_DEK = "wrappedDek"

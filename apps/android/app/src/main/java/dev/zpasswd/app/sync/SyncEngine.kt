@@ -39,6 +39,9 @@ data class BatchRes(val accepted: List<String>, val rejected: List<RejectedItem>
 @Serializable
 data class RejectedItem(val id: String, val item: ServerItem)
 
+@Serializable
+data class SaltRes(val kdfSalt: String, val wrappedDek: WrappedDekJson)
+
 data class SyncResult(val skipped: Boolean = false, val pushed: Int = 0, val pulled: Int = 0, val conflicts: Int = 0)
 
 /** 默认同步服务器（Cloudflare Workers 官方后端）；用户可在设置中改为自建地址 */
@@ -224,6 +227,65 @@ class SyncEngine(
 
     suspend fun disconnect() {
         repo.clearSyncState()
+    }
+
+    /**
+     * 从服务器恢复：重装/换机后，用邮箱+主密码取回服务器上的 salt/wrappedDek，
+     * 覆盖本地 vault，然后拉取条目。逻辑与扩展端恢复流程一致。
+     * 成功后 vault 处于解锁态且已保存同步配置。
+     */
+    suspend fun restoreFromServer(
+        serverUrl: String,
+        email: String,
+        deviceName: String,
+        masterPassword: String,
+    ): Unit = withContext(Dispatchers.IO) {
+        val base = serverUrl.trim().trimEnd('/')
+        require(base.startsWith("http://") || base.startsWith("https://")) {
+            "服务器地址须以 http(s):// 开头"
+        }
+        require(email.isNotBlank()) { "请输入邮箱" }
+        require(masterPassword.isNotEmpty()) { "请输入主密码" }
+
+        // 1) 取服务器 salt（不存在返回 404）
+        val saltRes = api.get(
+            base,
+            "/v1/auth/salt?email=${java.net.URLEncoder.encode(email.trim(), "UTF-8")}",
+        )
+        if (saltRes.code == 404) throw IllegalStateException("该邮箱没有同步账号")
+        if (saltRes.code != 200) throw IllegalStateException("获取服务器数据失败：HTTP ${saltRes.code}")
+        val sr = api.decode(saltRes.body, SaltRes.serializer())
+
+        // 2) 用旧 salt 派生 authKey 并登录验证（主密码错误 → 登录失败）
+        val mk = ZpCrypto.deriveMasterKey(masterPassword, ZpCrypto.b64decode(sr.kdfSalt))
+        val authKey: ByteArray
+        try {
+            authKey = ZpCrypto.deriveSubkey(mk, ZpCrypto.CTX_AUTH)
+        } finally {
+            ZpCrypto.wipe(mk)
+        }
+        try {
+            val login = api.post(base, "/v1/auth/login", LoginReq(email.trim(), ZpCrypto.b64encode(authKey)))
+            if (login.code != 200) throw IllegalStateException("主密码不正确")
+            val t = api.decode(login.body, LoginRes.serializer())
+
+            // 3) 覆盖本地 vault 并解锁
+            repo.installServerVault(sr.kdfSalt, sr.wrappedDek)
+            repo.unlock(masterPassword)
+            repo.saveSyncState(
+                SyncStateEntity(
+                    serverUrl = base,
+                    email = email.trim(),
+                    deviceId = UUID.randomUUID().toString(),
+                    deviceName = deviceName,
+                    accessJwt = t.accessJwt,
+                    refreshJwt = t.refreshJwt,
+                    lastSyncAt = "",
+                ),
+            )
+        } finally {
+            ZpCrypto.wipe(authKey)
+        }
     }
 
     private fun ServerItem.toEntity(dirty: Boolean) = ItemEntity(

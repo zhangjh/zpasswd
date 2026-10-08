@@ -80,6 +80,9 @@ interface MetaDao {
 
     @Query("DELETE FROM meta")
     suspend fun clear()
+
+    @Query("DELETE FROM meta WHERE `key` = :key")
+    suspend fun remove(key: String)
 }
 
 @Dao

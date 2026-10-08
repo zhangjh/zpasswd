@@ -38,7 +38,7 @@ class ApiClient {
         return exec(base, path, "PUT", body, token)
     }
 
-    fun get(base: String, path: String, token: String): HttpResult {
+    fun get(base: String, path: String, token: String? = null): HttpResult {
         return exec(base, path, "GET", null, token)
     }
 

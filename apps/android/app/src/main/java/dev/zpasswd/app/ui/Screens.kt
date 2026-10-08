@@ -140,6 +140,7 @@ fun UnlockScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var bioEnrolled by remember { mutableStateOf(false) }
+    var showRestore by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
@@ -162,25 +163,57 @@ fun UnlockScreen(
 
             when {
                 loading -> CircularProgressIndicator()
-                !hasVault -> CreateVaultForm(
+                !hasVault && showRestore -> RestoreFromServerForm(
                     busy = busy,
                     error = error,
-                    onCreate = { pw ->
+                    onBack = { showRestore = false; error = null },
+                    onRestore = { url, em, pw ->
                         error = null
                         busy = true
+                        val dn = android.os.Build.MODEL ?: "Android"
                         scope.launch(Dispatchers.IO) {
                             try {
-                                repo.createVault(pw)
+                                val engine = SyncEngine(repo)
+                                engine.restoreFromServer(url, em, dn, pw)
+                                runCatching { engine.runSync() }
                                 withContext(Dispatchers.Main) { onUnlocked() }
                             } catch (e: Exception) {
                                 withContext(Dispatchers.Main) {
-                                    error = e.message ?: "创建失败"
+                                    error = e.message ?: "恢复失败"
                                     busy = false
                                 }
                             }
                         }
                     },
                 )
+                !hasVault -> {
+                    CreateVaultForm(
+                        busy = busy,
+                        error = error,
+                        onCreate = { pw ->
+                            error = null
+                            busy = true
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    repo.createVault(pw)
+                                    withContext(Dispatchers.Main) { onUnlocked() }
+                                } catch (e: Exception) {
+                                    withContext(Dispatchers.Main) {
+                                        error = e.message ?: "创建失败"
+                                        busy = false
+                                    }
+                                }
+                            }
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        onClick = { showRestore = true; error = null },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("已有同步账号？从服务器恢复")
+                    }
+                }
                 else -> UnlockForm(
                     busy = busy,
                     error = error,
@@ -252,6 +285,72 @@ private fun CreateVaultForm(
             Spacer(Modifier.width(8.dp))
         }
         Text(if (busy) "创建中（约 1-2 秒）…" else "创建保险库")
+    }
+}
+
+/** 从服务器恢复表单：重装/换机后用同步账号取回数据（会覆盖本地）。 */
+@Composable
+private fun RestoreFromServerForm(
+    busy: Boolean,
+    error: String?,
+    onBack: (() -> Unit)?,
+    onRestore: (serverUrl: String, email: String, masterPassword: String) -> Unit,
+) {
+    var serverUrl by remember { mutableStateOf(dev.zpasswd.app.sync.DEFAULT_SERVER_URL) }
+    var email by remember { mutableStateOf("") }
+    var pw by remember { mutableStateOf("") }
+    var localError by remember { mutableStateOf<String?>(null) }
+
+    Text("从服务器恢复", style = MaterialTheme.typography.titleLarge)
+    Text(
+        "用同步账号的邮箱和主密码取回服务器上的数据。将覆盖本地现有数据（含指纹解锁，需重新开启）。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(vertical = 8.dp),
+    )
+    OutlinedTextField(
+        value = serverUrl,
+        onValueChange = { serverUrl = it },
+        label = { Text("服务器地址") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(8.dp))
+    OutlinedTextField(
+        value = email,
+        onValueChange = { email = it },
+        label = { Text("邮箱") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(8.dp))
+    PasswordField(value = pw, onValueChange = { pw = it }, label = "主密码")
+    ErrorText(localError ?: error)
+    Spacer(Modifier.height(16.dp))
+    Button(
+        onClick = {
+            localError = when {
+                email.isBlank() -> "请输入邮箱"
+                pw.isEmpty() -> "请输入主密码"
+                else -> null
+            }
+            if (localError == null) onRestore(serverUrl, email.trim(), pw)
+        },
+        enabled = !busy,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (busy) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(if (busy) "恢复中…" else "从服务器恢复")
+    }
+    if (onBack != null) {
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+            Text("返回")
+        }
     }
 }
 
@@ -1412,6 +1511,9 @@ private fun DangerSection(activity: FragmentActivity, repo: VaultRepository, onW
     val scope = rememberCoroutineScope()
     var showConfirm by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var showRestore by remember { mutableStateOf(false) }
+    var restoreBusy by remember { mutableStateOf(false) }
+    var restoreError by remember { mutableStateOf<String?>(null) }
 
     SectionTitle("危险区")
     Card(
@@ -1432,7 +1534,50 @@ private fun DangerSection(activity: FragmentActivity, repo: VaultRepository, onW
                 ),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("清除所有数据") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { showRestore = true; restoreError = null },
+                enabled = !restoreBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("从服务器恢复（覆盖本地数据）") }
         }
+    }
+
+    if (showRestore) {
+        AlertDialog(
+            onDismissRequest = { if (!restoreBusy) showRestore = false },
+            title = { Text("从服务器恢复") },
+            text = {
+                RestoreFromServerForm(
+                    busy = restoreBusy,
+                    error = restoreError,
+                    onBack = null,
+                    onRestore = { url, em, pw ->
+                        restoreError = null
+                        restoreBusy = true
+                        val dn = android.os.Build.MODEL ?: "Android"
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val engine = SyncEngine(repo)
+                                engine.restoreFromServer(url, em, dn, pw)
+                                runCatching { engine.runSync() }
+                                withContext(Dispatchers.Main) {
+                                    restoreBusy = false
+                                    showRestore = false
+                                    toast(activity, "已从服务器恢复")
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    restoreError = e.message ?: "恢复失败"
+                                    restoreBusy = false
+                                }
+                            }
+                        }
+                    },
+                )
+            },
+            confirmButton = {},
+        )
     }
 
     if (showConfirm) {
