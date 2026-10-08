@@ -15,6 +15,7 @@ import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
+import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
@@ -104,6 +105,16 @@ class ZpasswdAutofillService : AutofillService() {
         val matches = runBlocking { findMatches(form) }
         // request 已不可用，用简化版 response（无 inline）
         val builder = FillResponse.Builder()
+        val saveIds = listOfNotNull(form.usernameId, form.passwordId)
+            .ifEmpty { form.fillableIds }
+        if (saveIds.isNotEmpty()) {
+            builder.setSaveInfo(
+                SaveInfo.Builder(
+                    SaveInfo.SAVE_DATA_TYPE_USERNAME or SaveInfo.SAVE_DATA_TYPE_PASSWORD,
+                    saveIds.toTypedArray(),
+                ).build(),
+            )
+        }
         for (m in matches) {
             builder.addDataset(buildDataset(form, m, inlineSpec = null))
         }
@@ -146,6 +157,18 @@ class ZpasswdAutofillService : AutofillService() {
         val inlineSpec = if (Build.VERSION.SDK_INT >= 30) {
             request.inlineSuggestionsRequest?.inlinePresentationSpecs?.firstOrNull()
         } else null
+
+        // 必须设置 SaveInfo，系统才会在登录后回调 onSaveRequest；不设则永不保存。
+        val saveIds = listOfNotNull(form.usernameId, form.passwordId)
+            .ifEmpty { form.fillableIds }
+        if (saveIds.isNotEmpty()) {
+            builder.setSaveInfo(
+                SaveInfo.Builder(
+                    SaveInfo.SAVE_DATA_TYPE_USERNAME or SaveInfo.SAVE_DATA_TYPE_PASSWORD,
+                    saveIds.toTypedArray(),
+                ).build(),
+            )
+        }
 
         if (matches.isEmpty()) {
             // 无匹配：仍提供一个 dataset 打开 App（方便新建），或直接返回空
@@ -211,8 +234,10 @@ class ZpasswdAutofillService : AutofillService() {
     }
 
     private fun remotePresentation(text: String): RemoteViews {
-        val rv = RemoteViews(packageName, android.R.layout.simple_list_item_1)
-        rv.setTextViewText(android.R.id.text1, text)
+        // RemoteViews 必须用本包资源：之前用 android.R.layout.simple_list_item_1
+        // 配本包名，系统 inflate 失败会静默丢弃整个 dataset。
+        val rv = RemoteViews(packageName, R.layout.zp_autofill_item)
+        rv.setTextViewText(R.id.zp_text, text)
         return rv
     }
 
