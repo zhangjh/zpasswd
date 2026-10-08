@@ -2,7 +2,10 @@
 
 package dev.zpasswd.app.ui
 
+import android.content.Intent
 import android.widget.Toast
+import android.provider.Settings
+import android.view.autofill.AutofillManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,6 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -74,6 +78,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zpasswd.app.autofill.PendingCredential
 import dev.zpasswd.app.biometric.BiometricUnlock
 import dev.zpasswd.app.crypto.RecoveryCode
@@ -1012,6 +1019,8 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
+            AutofillSection(activity = activity)
+            Spacer(Modifier.height(8.dp))
             SyncSection(activity = activity, repo = repo)
             Spacer(Modifier.height(8.dp))
             IdleLockSection(repo = repo)
@@ -1026,6 +1035,57 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             DangerSection(activity = activity, repo = repo, onWipeAll = onWipeAll)
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+// ---- 自动填充服务 ----
+
+/**
+ * 显示当前自动填充服务状态，一键跳转系统授权页。
+ * 未把 zpasswd 设为系统自动填充服务时，点密码框不会有任何反应——
+ * 这是用户最常卡住的一步，故放在设置页顶部。
+ */
+@Composable
+private fun AutofillSection(activity: FragmentActivity) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var enabled by remember { mutableStateOf(false) }
+
+    fun refresh() {
+        val am = context.getSystemService(AutofillManager::class.java)
+        enabled = am != null && am.hasEnabledAutofillServices() &&
+            am.autofillServiceComponentName?.packageName == context.packageName
+    }
+    LaunchedEffect(Unit) { refresh() }
+    DisposableEffect(lifecycle) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        lifecycle.addObserver(obs)
+        onDispose { lifecycle.removeObserver(obs) }
+    }
+
+    SectionTitle("自动填充服务")
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                if (enabled) "已启用：在网页 / App 的账号密码框点击即可选择填充。"
+                else "未启用：开启后，在网页和 App 的登录框点击密码框即可填充。",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = {
+                    try {
+                        // 系统弹窗：请求将本应用设为自动填充服务
+                        activity.startActivity(Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE))
+                    } catch (_: Exception) {
+                        runCatching { activity.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (enabled) "重新设置" else "去开启自动填充") }
         }
     }
 }
