@@ -289,6 +289,117 @@ function showSavePrompt(username: string): void {
   }, 10000);
 }
 
+/** 无已存密码时：提供生成强密码（注册场景） */
+function showGeneratePanel(field: HTMLInputElement): void {
+  closePanel();
+  const host = document.createElement('div');
+  host.id = 'zpasswd-fill-host';
+  const shadow = host.attachShadow({ mode: 'closed' });
+  const style = document.createElement('style');
+  style.textContent = `
+    .zp { position: fixed; z-index: 2147483647; background: #1a1a2e; color: #eee;
+          border: 1px solid #444; border-radius: 8px; padding: 8px 10px; font: 13px/1.4 system-ui, sans-serif;
+          box-shadow: 0 4px 16px rgba(0,0,0,.4); min-width: 240px; }
+    .zp-title { color: #9fd; font-weight: 600; margin-bottom: 6px; }
+    .zp-pw { font-family: ui-monospace, monospace; background: #262640; border-radius: 6px;
+             padding: 6px 8px; margin: 6px 0; word-break: break-all; user-select: all; }
+    .zp .row { display: flex; gap: 6px; margin-top: 6px; }
+    .zp button { padding: 6px 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .zp .gen { background: #4a4ae0; color: #fff; flex: 1; }
+    .zp .gen:hover { background: #5a5af0; }
+    .zp .use { background: #2a7a3a; color: #fff; flex: 1; }
+    .zp .use:hover { background: #359a4a; }
+    .zp-x { position: absolute; top: 2px; right: 6px; background: none; border: 0; color: #888; cursor: pointer; }
+  `;
+  const box = document.createElement('div');
+  box.className = 'zp';
+  const rect = field.getBoundingClientRect();
+  box.style.top = `${Math.min(rect.bottom + window.scrollY + 4, window.innerHeight - 200)}px`;
+  box.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 260)}px`;
+
+  const title = document.createElement('div');
+  title.className = 'zp-title';
+  title.textContent = 'zpasswd：无已存密码';
+  const pwDiv = document.createElement('div');
+  pwDiv.className = 'zp-pw';
+  pwDiv.textContent = '点击生成强密码…';
+  const row = document.createElement('div');
+  row.className = 'row';
+  const genBtn = document.createElement('button');
+  genBtn.className = 'gen';
+  genBtn.textContent = '🎲 生成';
+  const useBtn = document.createElement('button');
+  useBtn.className = 'use';
+  useBtn.textContent = '✓ 填入';
+  useBtn.disabled = true;
+  (useBtn.style as CSSStyleDeclaration).opacity = '0.5';
+
+  let currentPw = '';
+  genBtn.addEventListener('click', () => {
+    genBtn.disabled = true;
+    genBtn.textContent = '生成中…';
+    bg<{ password: string }>({ type: 'GENERATE' })
+      .then((res) => {
+        currentPw = res.password;
+        pwDiv.textContent = currentPw;
+        useBtn.disabled = false;
+        (useBtn.style as CSSStyleDeclaration).opacity = '1';
+      })
+      .catch(() => {
+        pwDiv.textContent = '生成失败';
+      })
+      .finally(() => {
+        genBtn.disabled = false;
+        genBtn.textContent = '🎲 重新生成';
+      });
+  });
+
+  useBtn.addEventListener('click', () => {
+    if (!currentPw) return;
+    fillPasswordField(field, currentPw);
+    // 尝试填确认密码框
+    const confirm = findConfirmField(field);
+    if (confirm) fillPasswordField(confirm, currentPw);
+    closePanel();
+  });
+
+  const x = document.createElement('button');
+  x.className = 'zp-x';
+  x.textContent = '✕';
+  x.addEventListener('click', () => closePanel());
+
+  row.append(genBtn, useBtn);
+  box.append(title, pwDiv, row, x);
+  shadow.append(style, box);
+  document.documentElement.appendChild(host);
+  panelEl = host;
+}
+
+/** 填密码框：设值并触发 input 事件（兼容 React 受控组件） */
+function fillPasswordField(field: HTMLInputElement, value: string): void {
+  const proto = HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+  if (setter) {
+    setter.call(field, value);
+  } else {
+    field.value = value;
+  }
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  field.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** 找确认密码框：同表单内另一个空密码框 */
+function findConfirmField(field: HTMLInputElement): HTMLInputElement | null {
+  const form = field.form;
+  const candidates = form
+    ? Array.from(form.querySelectorAll<HTMLInputElement>('input[type="password"]'))
+    : Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]'));
+  for (const c of candidates) {
+    if (c !== field && !c.value) return c;
+  }
+  return null;
+}
+
 /** 在密码框旁用 Shadow DOM 渲染填充浮层（样式隔离，不被页面 CSS 污染） */
 function showFillPanel(field: HTMLInputElement, creds: Credential[]): void {
   closePanel();
@@ -389,7 +500,10 @@ function initFill(): void {
         showLockedHint(t);
         return;
       }
-      if (res.credentials.length === 0) return;
+      if (res.credentials.length === 0) {
+        showGeneratePanel(t);
+        return;
+      }
       showFillPanel(t, res.credentials);
     } catch {
       // background 未就绪等情况静默忽略
