@@ -3,7 +3,7 @@ import { defineManifest } from '@crxjs/vite-plugin';
 export default defineManifest({
   manifest_version: 3,
   name: 'zpasswd',
-  version: '0.1.7',
+  version: '0.1.8',
   description: '零知识密码管理器：生成、存储与自动填充，服务端只存密文',
   action: {
     default_popup: 'src/popup/index.html',

@@ -9,18 +9,18 @@ describe('recovery', () => {
     const m2 = await recoveryMnemonicFromMasterKey(mk);
     expect(m1).toBe(m2);
     expect(m1.split(' ')).toHaveLength(24);
-    expect(isValidMnemonic(m1)).toBe(true);
+    expect(await isValidMnemonic(m1)).toBe(true);
   });
 
   it('round-trips mnemonic -> rec key', async () => {
     const mk = await deriveMasterKey('pw', await randomSalt());
     const m = await recoveryMnemonicFromMasterKey(mk);
-    const rec = recKeyFromMnemonic(m);
+    const rec = await recKeyFromMnemonic(m);
     expect(rec).toHaveLength(32);
   });
 
-  it('rejects invalid mnemonics', () => {
-    expect(() => recKeyFromMnemonic('abandon '.repeat(23) + 'aboutx')).toThrow();
-    expect(isValidMnemonic('not a mnemonic')).toBe(false);
+  it('rejects invalid mnemonics', async () => {
+    await expect(recKeyFromMnemonic('abandon '.repeat(23) + 'aboutx')).rejects.toThrow();
+    expect(await isValidMnemonic('not a mnemonic')).toBe(false);
   });
 });
