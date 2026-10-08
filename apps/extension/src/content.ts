@@ -383,14 +383,52 @@ function initFill(): void {
         type: 'GET_CREDENTIALS',
         url: window.location.href,
       });
-      if (res.locked || res.credentials.length === 0) return;
       // 避免重复面板
       if (panelEl) closePanel();
+      if (res.locked) {
+        showLockedHint(t);
+        return;
+      }
+      if (res.credentials.length === 0) return;
       showFillPanel(t, res.credentials);
     } catch {
       // background 未就绪等情况静默忽略
     }
   });
+}
+
+/** vault 锁定时：密码框旁提示解锁，而非静默无反应 */
+function showLockedHint(field: HTMLInputElement): void {
+  closePanel();
+  const host = document.createElement('div');
+  host.id = 'zpasswd-fill-host';
+  const shadow = host.attachShadow({ mode: 'closed' });
+  const style = document.createElement('style');
+  style.textContent = `
+    .zp { position: fixed; z-index: 2147483647; background: #1a1a2e; color: #eee;
+          border: 1px solid #444; border-radius: 8px; padding: 8px 10px; font: 13px/1.4 system-ui, sans-serif;
+          box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+    .zp button { margin-top: 6px; padding: 6px 12px; border: 0; border-radius: 6px; cursor: pointer;
+                 background: #4a4ae0; color: #fff; font-size: 13px; }
+  `;
+  const box = document.createElement('div');
+  box.className = 'zp';
+  const rect = field.getBoundingClientRect();
+  box.style.top = `${Math.min(rect.bottom + window.scrollY + 4, window.innerHeight - 120)}px`;
+  box.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 240)}px`;
+  const txt = document.createElement('div');
+  txt.textContent = '🔒 zpasswd 已锁定';
+  const btn = document.createElement('button');
+  btn.textContent = '点击扩展图标解锁';
+  btn.addEventListener('click', () => closePanel());
+  box.append(txt, btn);
+  shadow.append(style, box);
+  document.documentElement.appendChild(host);
+  panelEl = host;
+  // 5 秒自动收起
+  setTimeout(() => {
+    if (panelEl === host) closePanel();
+  }, 5000);
 }
 
 /** 保存检测：所有 frame 都跑，用各自 frame 自己的 URL */
