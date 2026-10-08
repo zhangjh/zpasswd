@@ -361,6 +361,17 @@ function showGeneratePanel(field: HTMLInputElement): void {
   shadow.append(style, box);
   document.documentElement.appendChild(host);
   panelEl = host;
+
+  // 点击面板外空白处关闭；同样放行触发面板的那次点击
+  setTimeout(() => {
+    document.addEventListener('click', function dismiss(ev) {
+      if (ev.target === field) return;
+      if (!host.contains(ev.target as Node)) {
+        closePanel();
+        document.removeEventListener('click', dismiss);
+      }
+    });
+  }, 0);
 }
 
 /** 填密码框：设值并触发 input 事件（兼容 React 受控组件） */
@@ -445,6 +456,9 @@ function showFillPanel(field: HTMLInputElement, creds: Credential[]): void {
 
   setTimeout(() => {
     document.addEventListener('click', function dismiss(ev) {
+      // 触发面板的那一次点击（聚焦密码框）事件还在冒泡中：放行，否则面板
+      // 刚打开就会被这次点击关掉，表现为"一闪而过没法操作"。
+      if (ev.target === field) return;
       if (!host.contains(ev.target as Node)) {
         closePanel();
         document.removeEventListener('click', dismiss);
