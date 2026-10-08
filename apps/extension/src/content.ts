@@ -183,20 +183,23 @@ function closePanel(): void {
 
 let savePromptEl: HTMLElement | null = null;
 
-function closeSavePrompt(): void {
+function closeSavePrompt(clearFlag = true): void {
   savePromptEl?.remove();
   savePromptEl = null;
-  // 清除"跳转后重弹"标志，避免用户已处理后又冒出来
-  try {
-    void chrome.storage.session.remove('savePopup');
-  } catch {
-    // 忽略
+  // 清除"跳转后重弹"标志，避免用户已处理后又冒出来；
+  // showSavePrompt 替换旧弹窗时不清除（标记是刚设置的）
+  if (clearFlag) {
+    try {
+      void chrome.storage.session.remove('savePopup');
+    } catch {
+      // 忽略
+    }
   }
 }
 
 /** SPA 页内保存确认框：右上角浮层，Shadow DOM 样式隔离 */
 function showSavePrompt(username: string): void {
-  closeSavePrompt();
+  closeSavePrompt(false); // 替换旧弹窗时保留"跳转重弹"标记
   const host = document.createElement('div');
   host.id = 'zpasswd-save-host';
   const shadow = host.attachShadow({ mode: 'closed' });
