@@ -62,15 +62,24 @@ class ZpasswdAutofillService : AutofillService() {
     ) {
         val contexts = request.fillContexts
         val structure = contexts.lastOrNull()?.structure ?: run {
+            AutofillDiag.log("onFillRequest: 无 structure")
             callback.onFailure("no structure"); return
         }
+        val pkg = structure.activityComponent?.packageName ?: "?"
+        AutofillDiag.log("onFillRequest: pkg=$pkg windows=${structure.windowNodeCount}")
         val form = StructureParser.parse(structure) ?: run {
+            AutofillDiag.log("parse: 未找到可填字段")
             callback.onSuccess(null); return // 没有可填的框，不打扰用户
         }
+        AutofillDiag.log(
+            "parse: webDomain=${form.webDomain} user=${form.usernameId != null} " +
+                "pass=${form.passwordId != null} fillable=${form.fillableIds.size}",
+        )
 
         scope.launch {
             try {
                 if (!repo.isUnlocked()) {
+                    AutofillDiag.log("vault 锁定 → 返回解锁认证")
                     // 锁定：返回认证流程，解锁后继续
                     PendingAuth.form = form
                     PendingAuth.clientState = request.clientState
@@ -91,9 +100,12 @@ class ZpasswdAutofillService : AutofillService() {
                     return@launch
                 }
                 val matches = findMatches(form)
+                AutofillDiag.log("匹配条目: ${matches.size} 个 (库内共 ${repo.items.value.size} 条)")
                 val response = buildFillResponse(request, form, matches)
                 withContext(Dispatchers.Main) { callback.onSuccess(response) }
+                AutofillDiag.log("已返回 FillResponse")
             } catch (e: Exception) {
+                AutofillDiag.log("异常: ${e.message}")
                 withContext(Dispatchers.Main) { callback.onFailure(e.message) }
             }
         }
@@ -244,13 +256,19 @@ class ZpasswdAutofillService : AutofillService() {
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
         val contexts = request.fillContexts
         val structure = contexts.lastOrNull()?.structure ?: run {
+            AutofillDiag.log("onSaveRequest: 无 structure")
             callback.onFailure("no structure"); return
         }
         val form = StructureParser.parse(structure) ?: run {
+            AutofillDiag.log("onSaveRequest: 未解析到表单")
             callback.onSuccess(); return
         }
         val username = form.usernameId?.let { form.currentValues[it] } ?: ""
         val password = form.passwordId?.let { form.currentValues[it] } ?: ""
+        AutofillDiag.log(
+            "onSaveRequest: domain=${form.webDomain} user=${username.isNotBlank()} " +
+                "pass=${password.isNotBlank()}",
+        )
         if (username.isBlank() && password.isBlank()) {
             callback.onSuccess(); return
         }
@@ -324,6 +342,26 @@ data class PendingCredential(
     val username: String,
     val password: String,
 )
+
+/** 自动填充诊断日志：记录最近 50 条服务侧事件，供设置页"自动填充诊断"展示。 */
+object AutofillDiag {
+    data class Event(val time: String, val msg: String)
+
+    private val events = ArrayDeque<Event>()
+
+    fun log(msg: String) {
+        val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date())
+        synchronized(events) {
+            events.addLast(Event(t, msg))
+            while (events.size > 50) events.removeFirst()
+        }
+    }
+
+    fun snapshot(): List<Event> = synchronized(events) { events.toList().asReversed() }
+
+    fun clear() = synchronized(events) { events.clear() }
+}
 
 /** 待保存凭证队列（App 前台消费）。 */
 object PendingSave {

@@ -81,6 +81,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.zpasswd.app.autofill.AutofillDiag
 import dev.zpasswd.app.autofill.PendingCredential
 import dev.zpasswd.app.biometric.BiometricUnlock
 import dev.zpasswd.app.crypto.RecoveryCode
@@ -1021,6 +1022,8 @@ fun SettingsScreen(
         ) {
             AutofillSection(activity = activity)
             Spacer(Modifier.height(8.dp))
+            AutofillDiagSection()
+            Spacer(Modifier.height(8.dp))
             SyncSection(activity = activity, repo = repo)
             Spacer(Modifier.height(8.dp))
             IdleLockSection(repo = repo)
@@ -1086,6 +1089,65 @@ private fun AutofillSection(activity: FragmentActivity) {
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (enabled) "重新设置" else "去开启自动填充") }
+        }
+    }
+}
+
+// ---- 自动填充诊断 ----
+
+/**
+ * 展示自动填充服务侧最近事件：每次点密码框 / 登录后，这里会多出几行。
+ * 复现问题后截图此页，即可定位是"系统没调我们"还是"我们没匹配上"。
+ */
+@Composable
+private fun AutofillDiagSection() {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var events by remember { mutableStateOf(AutofillDiag.snapshot()) }
+    fun refresh() { events = AutofillDiag.snapshot() }
+    LaunchedEffect(Unit) { refresh() }
+    DisposableEffect(lifecycle) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        lifecycle.addObserver(obs)
+        onDispose { lifecycle.removeObserver(obs) }
+    }
+
+    SectionTitle("自动填充诊断")
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            if (events.isEmpty()) {
+                Text(
+                    "暂无事件：去点一下任意密码框再回来，这里会记录系统是否调用了填充服务。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                SelectionContainer {
+                    Column {
+                        events.take(20).forEach { ev ->
+                            Text(
+                                "${ev.time}  ${ev.msg}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { refresh() }, modifier = Modifier.weight(1f)) {
+                    Text("刷新")
+                }
+                OutlinedButton(
+                    onClick = { AutofillDiag.clear(); refresh() },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("清空")
+                }
+            }
         }
     }
 }
