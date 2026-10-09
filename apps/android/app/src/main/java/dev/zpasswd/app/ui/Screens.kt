@@ -1054,11 +1054,20 @@ private fun AutofillSection(activity: FragmentActivity) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var enabled by remember { mutableStateOf(false) }
+    var rawSetting by remember { mutableStateOf("(未读取)") }
 
     fun refresh() {
         val am = context.getSystemService(AutofillManager::class.java)
         enabled = am != null && am.hasEnabledAutofillServices() &&
             am.autofillServiceComponentName?.packageName == context.packageName
+        // 系统底层真正使用的原始值（Settings.Secure.autofill_service）
+        rawSetting = try {
+            android.provider.Settings.Secure.getString(
+                context.contentResolver, "autofill_service",
+            ) ?: "(空)"
+        } catch (_: Exception) {
+            "(读取失败)"
+        }
     }
     LaunchedEffect(Unit) { refresh() }
     DisposableEffect(lifecycle) {
@@ -1076,6 +1085,13 @@ private fun AutofillSection(activity: FragmentActivity) {
                 if (enabled) "已启用：在网页 / App 的账号密码框点击即可选择填充。"
                 else "未启用：开启后，在网页和 App 的登录框点击密码框即可填充。",
                 style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "系统底层值：$rawSetting",
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
             Button(

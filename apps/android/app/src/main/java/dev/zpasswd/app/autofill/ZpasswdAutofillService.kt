@@ -43,17 +43,21 @@ class ZpasswdAutofillService : AutofillService() {
 
     override fun onCreate() {
         super.onCreate()
+        AutofillDiag.log("服务 onCreate：进程已启动")
         repo = VaultRepository.get(this)
         dev.zpasswd.app.ui.UnlockActivity.service = this
     }
 
     override fun onDestroy() {
+        AutofillDiag.log("服务 onDestroy")
         super.onDestroy()
         if (dev.zpasswd.app.ui.UnlockActivity.service === this) {
             dev.zpasswd.app.ui.UnlockActivity.service = null
         }
         scope.cancel()
     }
+
+    // (onBind 在 AutofillService 中为 final，不可重写；onCreate 日志已足够判断系统是否拉起服务)
 
     override fun onFillRequest(
         request: FillRequest,
