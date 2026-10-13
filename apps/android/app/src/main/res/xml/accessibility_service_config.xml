@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  浏览器自动填充用的无障碍服务配置。
+
+  为什么需要 flagIncludeNotImportantViews：
+  Chromium 内核把网页里的 <input> 映射成大量默认「对无障碍不重要」的节点，
+  不带这个 flag 时，密码框往往不会出现在节点树里，等于白开无障碍。
+
+  为什么需要 flagReportViewIds：
+  要靠资源 id 末段（url_bar / url / omnibox…）识别浏览器地址栏，从而拿到当前域名。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeViewFocused|typeViewClicked|typeWindowContentChanged|typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="120"
+    android:summary="@string/accessibility_service_summary" />

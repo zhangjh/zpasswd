@@ -494,10 +494,27 @@ function fillCredential(field: HTMLInputElement, cred: Credential): void {
   field.focus();
 }
 
+/**
+ * 判断输入框当前是否持有焦点，穿透 Shadow DOM。
+ * 直接用 document.activeElement === el 判断时，被 shadow root 包裹的密码框
+ * （activeElement 会停在 shadow host 上）永远不相等，弹窗会被静默丢弃。
+ */
+function isFocused(el: HTMLInputElement): boolean {
+  let active: Element | null = document.activeElement;
+  while (active) {
+    if (active === el) return true;
+    active = (active as HTMLElement & { shadowRoot?: ShadowRoot | null }).shadowRoot?.activeElement ?? null;
+  }
+  return false;
+}
+
 /** 填充：密码框聚焦 → 查询匹配凭证并弹浮层（仅顶层/同源 frame） */
 function initFill(): void {
+  // 竞态序号：任意 focusin 都递增，避免密码框查询返回后焦点已切到其他输入框仍弹出
+  let fillSeq = 0;
   // 密码框聚焦 → 查询匹配凭证
   document.addEventListener('focusin', async (e) => {
+    const seq = ++fillSeq;
     const t = e.target as HTMLElement;
     if (!(t instanceof HTMLInputElement) || t.type !== 'password' || t.readOnly || t.disabled) return;
     if (!isVisible(t)) return;
@@ -506,6 +523,8 @@ function initFill(): void {
         type: 'GET_CREDENTIALS',
         url: window.location.href,
       });
+      // 竞态保护：聚焦期间已切换到其他元素，丢弃本次响应
+      if (seq !== fillSeq || !isFocused(t)) return;
       // 避免重复面板
       if (panelEl) closePanel();
       if (res.locked) {

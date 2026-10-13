@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_summary">在浏览器网页里识别账号/密码框并填充</string>
+    <string name="accessibility_service_description">浏览器里的网页密码框不会交给系统的自动填充服务（Chrome、Edge、小米浏览器等都是如此），因此 zpasswd 需要无障碍权限来读取当前屏幕上的输入框，才能在这些网页里弹出填充面板并写入账号密码。zpasswd 只读取输入框相关的界面信息，不会读取或上传任何其他内容。</string>
+</resources>

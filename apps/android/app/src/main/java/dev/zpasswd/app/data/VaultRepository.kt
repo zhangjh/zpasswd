@@ -2,6 +2,7 @@ package dev.zpasswd.app.data
 
 import android.content.Context
 import androidx.room.Room
+import dev.zpasswd.app.biometric.DeviceAutoUnlock
 import dev.zpasswd.app.crypto.ZpCrypto
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -103,6 +104,9 @@ class VaultRepository private constructor(val db: ZpasswdDb) {
         dek = d
         _unlocked.value = true
         scope.launch { refreshItems() }
+        // 每次解锁成功后（主密码 / 指纹 / 设备免解锁）都确保有一份"设备免解锁"密文，
+        // 这样进程重启后能自动恢复解锁态，填充前不需要用户再解锁。幂等，失败忽略。
+        scope.launch { runCatching { DeviceAutoUnlock.ensureEnrolled(this@VaultRepository) } }
     }
 
     /** 锁定：清零内存密钥。 */
@@ -285,6 +289,8 @@ class VaultRepository private constructor(val db: ZpasswdDb) {
             db.metaDao().remove(KEY_SALT)
             db.metaDao().remove(KEY_WRAPPED_DEK)
             db.metaDao().remove(KEY_BIOMETRIC_DEK)
+            // 换库了，旧 DEK 的免解锁密文必须一起清掉，否则会自动解出旧库的 DEK
+            db.metaDao().remove(KEY_DEVICE_DEK)
             db.metaDao().put(MetaEntity(KEY_SALT, saltB64))
             db.metaDao().put(
                 MetaEntity(KEY_WRAPPED_DEK, json.encodeToString(wrappedDek)),
@@ -294,7 +300,8 @@ class VaultRepository private constructor(val db: ZpasswdDb) {
     companion object {
         const val KEY_SALT = "salt"
         const val KEY_WRAPPED_DEK = "wrappedDek"
-        const val KEY_BIOMETRIC_DEK = "biometricDek" // Keystore 加密后的 DEK
+        const val KEY_BIOMETRIC_DEK = "biometricDek" // Keystore 加密后的 DEK（要求指纹）
+        const val KEY_DEVICE_DEK = "deviceDek"       // Keystore 加密后的 DEK（不要求认证，设备免解锁）
         const val KEY_IDLE_MINUTES = "idleMinutes"
 
         @Volatile

@@ -83,7 +83,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zpasswd.app.autofill.AutofillDiag
 import dev.zpasswd.app.autofill.PendingCredential
+import dev.zpasswd.app.autofill.ZpasswdAccessibilityService
 import dev.zpasswd.app.biometric.BiometricUnlock
+import dev.zpasswd.app.biometric.DeviceAutoUnlock
 import dev.zpasswd.app.crypto.RecoveryCode
 import dev.zpasswd.app.crypto.Totp
 import dev.zpasswd.app.crypto.ZpCrypto
@@ -814,6 +816,7 @@ fun ItemEditScreen(
     itemId: String?,
     onDone: () -> Unit,
     onBack: () -> Unit,
+    defaultUrl: String = "",
 ) {
     val scope = rememberCoroutineScope()
     val items by repo.items.collectAsState()
@@ -822,7 +825,7 @@ fun ItemEditScreen(
     var name by remember(existing) { mutableStateOf(existing?.plain?.name ?: "") }
     var username by remember(existing) { mutableStateOf(existing?.plain?.username ?: "") }
     var password by remember(existing) { mutableStateOf(existing?.plain?.password ?: "") }
-    var url by remember(existing) { mutableStateOf(existing?.plain?.url ?: "") }
+    var url by remember(existing, defaultUrl) { mutableStateOf(existing?.plain?.url ?: defaultUrl) }
     var notes by remember(existing) { mutableStateOf(existing?.plain?.notes ?: "") }
     var totpSeed by remember(existing) { mutableStateOf(existing?.plain?.totpSeed ?: "") }
     var saving by remember { mutableStateOf(false) }
@@ -1022,6 +1025,10 @@ fun SettingsScreen(
         ) {
             AutofillSection(activity = activity)
             Spacer(Modifier.height(8.dp))
+            BrowserAutofillSection(activity = activity)
+            Spacer(Modifier.height(8.dp))
+            DeviceUnlockSection(activity = activity, repo = repo)
+            Spacer(Modifier.height(8.dp))
             AutofillDiagSection()
             Spacer(Modifier.height(8.dp))
             SyncSection(activity = activity, repo = repo)
@@ -1078,12 +1085,12 @@ private fun AutofillSection(activity: FragmentActivity) {
         onDispose { lifecycle.removeObserver(obs) }
     }
 
-    SectionTitle("自动填充服务")
+    SectionTitle("自动填充服务（原生 App）")
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                if (enabled) "已启用：在网页 / App 的账号密码框点击即可选择填充。"
-                else "未启用：开启后，在网页和 App 的登录框点击密码框即可填充。",
+                if (enabled) "已启用：原生 App 的登录框点击密码框即可选择填充。"
+                else "未启用：开启后，原生 App 的登录框点击密码框即可填充。",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(8.dp))
@@ -1105,6 +1112,160 @@ private fun AutofillSection(activity: FragmentActivity) {
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (enabled) "重新设置" else "去开启自动填充") }
+        }
+    }
+}
+
+// ---- 浏览器自动填充（无障碍） ----
+
+/**
+ * 浏览器场景的自动填充开关。
+ *
+ * Chrome / Edge / 小米浏览器等 Chromium 内核浏览器**不会**把网页里的密码框交给系统的
+ * 自动填充服务。真机实测：Edge 153 在 HTTPS 登录页上连一个 FillRequest 都不发；
+ * 小米浏览器只交出地址栏（`AutofillableIds` 只有一个 id）。因此必须再开一个无障碍服务
+ * 直接读界面节点树来识别并填充登录框——这是 Android 上所有密码管理器的通用做法
+ * （Bitwarden / 1Password / Dashlane 同样如此）。
+ */
+@Composable
+private fun BrowserAutofillSection(activity: FragmentActivity) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var enabled by remember { mutableStateOf(false) }
+
+    fun refresh() {
+        enabled = ZpasswdAccessibilityService.isAutofillEnabled(context)
+    }
+    LaunchedEffect(Unit) { refresh() }
+    DisposableEffect(lifecycle) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        lifecycle.addObserver(obs)
+        onDispose { lifecycle.removeObserver(obs) }
+    }
+
+    SectionTitle("浏览器自动填充（无障碍）")
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                if (enabled) {
+                    "已启用：在浏览器网页的账号 / 密码框点击即可填充。"
+                } else {
+                    "未启用：Chrome、Edge、小米浏览器等不会把网页密码框交给系统的填充服务，" +
+                        "需要开启无障碍权限，zpasswd 才能在这些浏览器里识别并填充登录框。"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "开启方式：点下面的按钮进入系统无障碍设置，在「已下载的服务 / 已安装的服务」里" +
+                    "找到「zpasswd 浏览器填充」并打开开关。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "zpasswd 只读取输入框相关的界面信息用于识别登录框，不会读取或上传其它内容。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = { openAccessibilitySettings(activity) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (enabled) "管理无障碍权限" else "去开启浏览器自动填充") }
+        }
+    }
+}
+
+/**
+ * 打开系统无障碍设置页。
+ *
+ * 不能走 `ACTION_ACCESSIBILITY_DETAILS_SETTINGS` 直达本服务详情页：它需要
+ * `android.permission.OPEN_ACCESSIBILITY_DETAILS_SETTINGS`，而该权限是
+ * `signature|installer` 级（实测 `dumpsys package android` 确认），第三方应用拿不到。
+ * 总列表页 `ACTION_ACCESSIBILITY_SETTINGS` 是所有应用都能打开的。
+ */
+private fun openAccessibilitySettings(activity: FragmentActivity) {
+    val ok = runCatching {
+        activity.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }.isSuccess
+    if (!ok) {
+        runCatching { activity.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+    }
+}
+
+// ---- 免解锁（设备自动解锁） ----
+
+/**
+ * 免解锁开关。
+ *
+ * 默认开启：第一次用主密码解锁后，DEK 会被本机 Keystore 里一把**不要求用户认证**的
+ * AES 密钥再包一层存起来。之后 App / 自动填充服务启动时自动解包，填充前不需要解锁。
+ * 关掉即回到「主密码 / 指纹」解锁，代价是每次填充前都要先解锁一次。
+ */
+@Composable
+private fun DeviceUnlockSection(activity: FragmentActivity, repo: VaultRepository) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val scope = rememberCoroutineScope()
+    var enrolled by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+
+    fun refresh() {
+        scope.launch { enrolled = DeviceAutoUnlock.isEnrolled(repo) }
+    }
+    LaunchedEffect(Unit) { refresh() }
+    DisposableEffect(lifecycle) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        lifecycle.addObserver(obs)
+        onDispose { lifecycle.removeObserver(obs) }
+    }
+
+    SectionTitle("免解锁")
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("填充前不需要解锁", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (enrolled) "已开启：打开 App / 填充都不再要求解锁"
+                        else "已关闭：每次填充前需要先解锁；打开开关即生效",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = enrolled,
+                    enabled = !busy,
+                    onCheckedChange = { want ->
+                        if (want && !repo.isUnlocked()) {
+                            toast(activity, "请先用主密码解锁一次")
+                        } else {
+                            busy = true
+                            scope.launch {
+                                if (want) {
+                                    DeviceAutoUnlock.ensureEnrolled(repo)
+                                } else {
+                                    DeviceAutoUnlock.disable(repo)
+                                }
+                                busy = false
+                                refresh()
+                            }
+                        }
+                    },
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "DEK 由本机 Keystore 密钥加密后保存，落盘的仍是密文，换机 / 清除应用数据后依然要用主密码。" +
+                    "但这把密钥不再要求指纹或锁屏验证——拿到已解锁手机的人可以直接打开 zpasswd 看到密码。" +
+                    "在意这一点的请关掉，改用主密码 / 指纹解锁。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }

@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  supportsInlineSuggestions 关闭的原因：
+  IME 支持内嵌建议时，系统会把自动填充建议渲染在输入法建议栏，而不是系统下拉菜单里。
+  一旦 InlinePresentation 的 Slice 格式不被系统接受，用户就完全看不到任何填充入口
+  （表现为"密码框聚焦后什么都不弹"）。系统下拉 dataset 是各版本/各输入法都必定生效的路径。
+  若将来要启用内嵌建议，请引入 androidx.autofill:autofill，用 SliceSpecs.BASIC 构造 Slice，
+  并真机验证 Gboard 等输入法下的渲染结果。
+-->
 <autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:settingsActivity="dev.zpasswd.app.MainActivity"
-    android:supportsInlineSuggestions="true" />
+    android:supportsInlineSuggestions="false" />
