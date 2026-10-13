@@ -14,7 +14,7 @@ import {
   wrapDek,
 } from '@pm/crypto';
 import { clearAllData, clearSyncState, getDb, getSyncState, saveSyncState } from './lib/db';
-import { connectSync, DEFAULT_SERVER_URL, runSync } from './lib/sync';
+import { connectSync, DEFAULT_SERVER_URL, runSync, type SyncResult } from './lib/sync';
 import { b64decode, b64encode, etldPlusOneOfUrl } from './lib/util';
 import type { BgRequest, BgResponse, Status } from './lib/messages';
 import {
@@ -198,6 +198,105 @@ async function touch(): Promise<void> {
   lastActiveAt = Date.now();
 }
 
+// ---------- 自动同步 ----------
+//
+// 背景：同步此前只由 popup 的「同步」按钮（SYNC_NOW）与「连接同步」（CONNECT_SYNC）
+// 触发。新增/修改/删除条目只写本地并打上 dirty 标记，没有任何一处上传，
+// 于是服务端永远见不到这些条目 —— 换设备自然拉不到。
+// 现在把同步挂到四个时机：解锁后、每次本地写入后、定时兜底、从服务器恢复后。
+//
+// 串行化：runSync 是「先拉后推 + version 乐观锁」。同一时刻跑两轮时，
+// 后一轮推送的 version 会被服务端判定为不更新而拒绝，客户端再把拒绝当冲突处理，
+// 于是凭空多出「冲突副本」。所以所有同步请求都排在同一条链上串行执行。
+
+const SYNC_ALARM = 'zpasswd-sync';
+const SYNC_INTERVAL_MINUTES = 15;
+/** 写入后 / 解锁后最多等这么久；超时就让同步继续在后台跑，不阻塞 UI */
+const SYNC_WAIT_MS = 3000;
+
+let syncChain: Promise<unknown> = Promise.resolve();
+let autoSyncPending = false;
+let autoSyncAgain = false;
+
+const EMPTY_SYNC_RESULT: SyncResult = { skipped: true, pushed: 0, pulled: 0, conflicts: 0 };
+
+async function setSyncError(message: string): Promise<void> {
+  const s = await getSyncState();
+  if (!s || (s.lastError ?? '') === message) return;
+  await saveSyncState({ ...s, lastError: message, lastSyncAttemptAt: new Date().toISOString() });
+}
+
+async function clearSyncError(): Promise<void> {
+  const s = await getSyncState();
+  if (!s || !s.lastError) return;
+  await saveSyncState({ ...s, lastError: '', lastSyncAttemptAt: new Date().toISOString() });
+}
+
+/** 把一轮同步追加到串行链尾。错误照常抛出，由调用方决定是否吞掉。 */
+function enqueueSync(): Promise<SyncResult> {
+  const run = async (): Promise<SyncResult> => {
+    if (!isUnlocked()) return EMPTY_SYNC_RESULT;
+    const state = await getSyncState();
+    if (!state?.serverUrl) return EMPTY_SYNC_RESULT;
+    try {
+      const r = await runSync(async () => requireDek());
+      await clearSyncError();
+      return r;
+    } catch (e) {
+      await setSyncError(e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+  };
+  const p = syncChain.then(run, run);
+  // 链本身不能因某轮失败而断掉，否则后续所有同步都会被静默跳过
+  syncChain = p.then(
+    () => undefined,
+    () => undefined,
+  );
+  return p;
+}
+
+/** 手动 / 连接后 / 恢复后的同步：必须跑一轮，错误抛给调用方展示。 */
+function syncNow(): Promise<SyncResult> {
+  return enqueueSync();
+}
+
+/**
+ * 自动同步（写入后 / 解锁后 / 定时兜底）：错误只记进 sync state，不抛出。
+ *
+ * 合并请求：已有自动同步在跑时只标记「再补一轮」，避免慢网下请求无限堆积；
+ * 同时保证在同步过程中新产生的写入一定会被下一轮带上（不丢更新）。
+ */
+async function autoSync(): Promise<void> {
+  if (autoSyncPending) {
+    autoSyncAgain = true;
+    return;
+  }
+  autoSyncPending = true;
+  try {
+    do {
+      autoSyncAgain = false;
+      await enqueueSync().catch(() => undefined);
+    } while (autoSyncAgain);
+  } finally {
+    autoSyncPending = false;
+  }
+}
+
+/** 写入后 / 解锁后触发：最多等 SYNC_WAIT_MS，超时后同步继续在后台跑，不阻塞 UI。 */
+async function autoSyncWithinBudget(): Promise<void> {
+  await Promise.race([
+    autoSync(),
+    new Promise<void>((resolve) => setTimeout(resolve, SYNC_WAIT_MS)),
+  ]);
+}
+
+/** 定时兜底同步。MV3 的 SW 会频繁重启，无条件 create 会把周期闹钟一直重置导致永不触发，
+ *  所以只在闹钟不存在时创建。 */
+void chrome.alarms.get(SYNC_ALARM).then((existing) => {
+  if (!existing) void chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_INTERVAL_MINUTES });
+});
+
 // ---------- 消息处理 ----------
 
 async function handle(req: BgRequest): Promise<unknown> {
@@ -300,7 +399,8 @@ async function handle(req: BgRequest): Promise<unknown> {
       dek = ndek;
       await persistSession();
 
-      // 6. 保存同步状态并拉取
+      // 6. 保存同步状态并拉取。此前这里只写状态没真拉，导致新设备"恢复成功"后保险库是空的，
+      //    必须再手动点一次同步才看得到数据。现在恢复完立即拉取。
       const deviceName = settings.deviceName;
       await saveSyncState({
         serverUrl: base,
@@ -311,6 +411,8 @@ async function handle(req: BgRequest): Promise<unknown> {
         refreshJwt,
         lastSyncAt: '',
       });
+      // 拉取失败不回滚本地恢复结果；错误已记入 sync state，popup 会提示
+      await autoSync();
       return { ok: true };
     }
 
@@ -334,6 +436,9 @@ async function handle(req: BgRequest): Promise<unknown> {
       mk = nmk;
       dek = ndek;
       await persistSession();
+      // 解锁后立刻拉一次远端增量：换设备 / 别的设备刚改过时，打开就是最新的。
+      // 未连接同步时直接返回，不产生任何网络请求。
+      await autoSyncWithinBudget();
       return { ok: true };
     }
 
@@ -374,6 +479,8 @@ async function handle(req: BgRequest): Promise<unknown> {
         pendingSave: pending ? { url: pending.url, username: pending.username } : null,
         syncConfigured: !!sync?.serverUrl,
         syncEmail: sync?.email || settings.email || undefined,
+        lastSyncAt: sync?.lastSyncAt || undefined,
+        syncError: sync?.lastError || undefined,
       };
       return status;
     }
@@ -424,6 +531,7 @@ async function handle(req: BgRequest): Promise<unknown> {
 
     case 'ADD_ITEM': {
       const id = await createItem(req.item, req.folderId ?? null);
+      await autoSyncWithinBudget();
       return { id };
     }
 
@@ -442,6 +550,7 @@ async function handle(req: BgRequest): Promise<unknown> {
         updatedAt: new Date().toISOString(),
         dirty: true,
       });
+      await autoSyncWithinBudget();
       return { ok: true };
     }
 
@@ -457,6 +566,7 @@ async function handle(req: BgRequest): Promise<unknown> {
         deletedAt: new Date().toISOString(),
         dirty: true,
       });
+      await autoSyncWithinBudget();
       return { ok: true };
     }
 
@@ -472,6 +582,7 @@ async function handle(req: BgRequest): Promise<unknown> {
         updatedAt: new Date().toISOString(),
         dirty: true,
       });
+      await autoSyncWithinBudget();
       return { favorite: !it.favorite };
     }
 
@@ -495,7 +606,8 @@ async function handle(req: BgRequest): Promise<unknown> {
     }
 
     case 'SYNC_NOW': {
-      return runSync(async () => requireDek());
+      // 手动同步：与自动同步共用同一条串行链，错误抛给调用方展示
+      return syncNow();
     }
 
     case 'CONNECT_SYNC': {
@@ -521,7 +633,7 @@ async function handle(req: BgRequest): Promise<unknown> {
         [LS_KEY.SETTINGS]: { ...settings, serverUrl: req.serverUrl, email: req.email },
       });
       // 连接成功后立即同步一次
-      return runSync(async () => requireDek());
+      return syncNow();
     }
 
     case 'DISCONNECT_SYNC': {
@@ -590,6 +702,7 @@ async function handle(req: BgRequest): Promise<unknown> {
         { name: site, username: p.username, password: p.password, url: p.url, notes: '', totpSeed: '' },
         null,
       );
+      await autoSyncWithinBudget();
       return { id };
     }
 
@@ -681,15 +794,23 @@ chrome.notifications.onClicked.addListener((id) => {
   chrome.action.openPopup().catch(() => undefined);
 });
 
-// 空闲自动锁定：每分钟检查一次
+// 空闲自动锁定：每分钟检查一次；同步兜底：每 SYNC_INTERVAL_MINUTES 分钟一次
 chrome.alarms.create('zpasswd-autolock', { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== 'zpasswd-autolock') return;
-  if (!isUnlocked()) return;
-  const settings = await getSettings();
-  if (Date.now() - lastActiveAt > settings.idleMinutes * 60_000) {
-    doLock();
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === SYNC_ALARM) {
+    // 定时兜底：万一某次写入后的同步因 SW 被回收等原因没跑完，这里补上。
+    // 锁定状态 / 未连接同步时 autoSync 直接返回，不会有网络开销。
+    void autoSync();
+    return;
   }
+  if (alarm.name !== 'zpasswd-autolock') return;
+  void (async () => {
+    if (!isUnlocked()) return;
+    const settings = await getSettings();
+    if (Date.now() - lastActiveAt > settings.idleMinutes * 60_000) {
+      doLock();
+    }
+  })();
 });
 
 void sessionReady;

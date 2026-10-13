@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import dev.zpasswd.app.biometric.DeviceAutoUnlock
 import dev.zpasswd.app.crypto.ZpCrypto
+import dev.zpasswd.app.sync.SyncScheduler
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -107,6 +108,9 @@ class VaultRepository private constructor(val db: ZpasswdDb) {
         // 每次解锁成功后（主密码 / 指纹 / 设备免解锁）都确保有一份"设备免解锁"密文，
         // 这样进程重启后能自动恢复解锁态，填充前不需要用户再解锁。幂等，失败忽略。
         scope.launch { runCatching { DeviceAutoUnlock.ensureEnrolled(this@VaultRepository) } }
+        // 解锁后立刻拉一次远端增量：换设备 / 别的设备刚改过时，打开就是最新的。
+        // 未连接同步时直接跳过，不产生任何网络请求。
+        SyncScheduler.requestSync(this@VaultRepository)
     }
 
     /** 锁定：清零内存密钥。 */
@@ -203,6 +207,8 @@ class VaultRepository private constructor(val db: ZpasswdDb) {
         )
         db.itemDao().upsert(entity)
         refreshItems()
+        // 写入即上传：否则这条会一直带着 dirty 标记躺在本地，换设备拉不到
+        SyncScheduler.requestSync(this@VaultRepository)
         entity.id
     }
 
@@ -217,6 +223,8 @@ class VaultRepository private constructor(val db: ZpasswdDb) {
             ),
         )
         refreshItems()
+        // 软删除同样要同步（服务端靠 tombstone 才会在其他设备上删掉）
+        SyncScheduler.requestSync(this@VaultRepository)
     }
 
     /** 供同步引擎：解密单个条目明文（冲突改名用）。 */
@@ -303,6 +311,8 @@ class VaultRepository private constructor(val db: ZpasswdDb) {
         const val KEY_BIOMETRIC_DEK = "biometricDek" // Keystore 加密后的 DEK（要求指纹）
         const val KEY_DEVICE_DEK = "deviceDek"       // Keystore 加密后的 DEK（不要求认证，设备免解锁）
         const val KEY_IDLE_MINUTES = "idleMinutes"
+        /** 最近一次同步失败的原因；成功时为空串。供设置页提示。 */
+        const val KEY_SYNC_ERROR = "lastSyncError"
 
         @Volatile
         private var instance: VaultRepository? = null

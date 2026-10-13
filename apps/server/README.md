@@ -47,7 +47,7 @@ wrangler deploy
 | POST | `/v1/auth/login` | `{email, authKeyB64}` → `{accessJwt(15min), refreshJwt(30d)}`。失败统一 401 `{error:"invalid credentials"}`，不区分用户不存在/密码错；(IP+email) 滑动窗口限流 10 次/分钟 |
 | POST | `/v1/auth/refresh` | `{refreshJwt}` → 新 pair，旧 jti 吊销（rotation，复用即失效） |
 | POST | `/v1/auth/change-password` 🔒 | `{newAuthVerifier, newWrappedDek, newRecoveryVerifier}` |
-| GET | `/v1/sync?since=` 🔒 | 增量拉取 `updatedAt > since` 的条目 → `{items, serverTime}` |
+| GET | `/v1/sync?since=` 🔒 | 增量拉取 `updated_at >= since` 的条目 → `{items, serverTime}`。`since` 与 `serverTime` 都是**服务端时钟**；`serverTime` 会回退 5 秒安全窗口（见下） |
 | PUT | `/v1/items/batch` 🔒 | 批量上传，version 乐观锁 → `{accepted:[ids], rejected:[{id, serverVersion}]}`。注：Google 风格的 `items:batch` 在 Hono 会被解析成路由参数，故用 `/items/batch` |
 | GET | `/v1/export` 🔒 | 全量未删除密文 + kdfSalt + wrappedDek（加密快照） |
 | POST | `/v1/devices` 🔒 | `{pubkey, name}` → `{deviceId}` |
@@ -55,6 +55,22 @@ wrangler deploy
 | DELETE | `/v1/devices/:id` 🔒 | 软吊销（`revoked_at`），不存在也返回 ok |
 
 🔒 = 需要 `Authorization: Bearer <accessJwt>`。
+
+## 时间基准：一律以服务端为准
+
+`vault_items.updated_at` / `deleted_at` 由服务端用自身时钟盖章，客户端传来的
+`updatedAt` 只用于它本地的展示与排序，**不入库**；增量同步游标同样取服务端时钟。
+两者同源，客户端时钟偏差不会再造成漏拉。
+
+游标额外做两点保证：
+
+1. **取样在查询之前，比较用 `>=`**：恰好在边界毫秒写入的行不会被漏掉
+   （最坏只是重复投递一次，客户端按 `version` 幂等）。
+2. **游标回退 `SYNC_CURSOR_LOOKBACK_MS`（5 秒）**：写入方"已取样时间戳、行尚未提交"
+   的并发窗口内，拉取方可能发出一个比该行更新的游标，导致该行永久漏拉。
+   退后几秒即可消除，代价是这段时间内的变更被重复投递（幂等，可忽略）。
+
+> 部署 `0002_server_authoritative_time.sql` 会把历史上被客户端"未来时钟"写歪的行夹回当前时间。
 
 ## 安全说明
 

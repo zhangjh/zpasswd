@@ -11,6 +11,10 @@ export interface SyncState {
   refreshJwt: string;
   /** 上次同步成功的服务端时间；'' = 从未同步 */
   lastSyncAt: string;
+  /** 最近一次同步尝试的时间（ISO）；仅本地，用于 UI 提示 */
+  lastSyncAttemptAt?: string;
+  /** 最近一次同步失败的原因；同步成功时清空。仅本地，用于 UI 提示 */
+  lastError?: string;
 }
 
 interface PmSchema extends DBSchema {

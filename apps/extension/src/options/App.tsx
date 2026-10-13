@@ -75,6 +75,19 @@ function SyncSettings({ onChanged }: { onChanged: () => void }) {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(false);
+  /** 后台自动同步的最近状态。自动同步失败不会弹窗打断用户，但必须让用户查得到，
+   *  否则只会表现为"换设备没数据"这种难以定位的现象。 */
+  const [lastSyncAt, setLastSyncAt] = useState<string | undefined>();
+  const [syncError, setSyncError] = useState<string | undefined>();
+
+  const refreshStatus = () => {
+    void bg<Status>({ type: 'GET_STATUS' })
+      .then((st) => {
+        setLastSyncAt(st.lastSyncAt);
+        setSyncError(st.syncError);
+      })
+      .catch(() => undefined);
+  };
 
   useEffect(() => {
     void bg<Settings>({ type: 'GET_SETTINGS' }).then((s) => {
@@ -83,6 +96,7 @@ function SyncSettings({ onChanged }: { onChanged: () => void }) {
       setEmail(s.email);
       setConnected(!!s.serverUrl);
     });
+    refreshStatus();
   }, []);
 
   const connect = async () => {
@@ -96,6 +110,7 @@ function SyncSettings({ onChanged }: { onChanged: () => void }) {
       await bg({ type: 'CONNECT_SYNC', serverUrl: serverUrl.trim(), email: email.trim() });
       setConnected(true);
       setMsg('已连接并完成首次同步');
+      refreshStatus();
       onChanged();
     } catch (e) {
       setMsg(`连接失败：${e instanceof Error ? e.message : String(e)}`);
@@ -109,6 +124,8 @@ function SyncSettings({ onChanged }: { onChanged: () => void }) {
     await bg({ type: 'SAVE_SETTINGS', settings: { serverUrl: '' } });
     setConnected(false);
     setMsg('已断开同步（本地数据保留）');
+    setLastSyncAt(undefined);
+    setSyncError(undefined);
     onChanged();
   };
 
@@ -141,6 +158,10 @@ function SyncSettings({ onChanged }: { onChanged: () => void }) {
         )}
       </div>
       {msg && <div className="hint">{msg}</div>}
+      {connected && lastSyncAt && (
+        <div className="hint">上次同步：{new Date(lastSyncAt).toLocaleString()}</div>
+      )}
+      {connected && syncError && <div className="err">上次同步失败：{syncError}</div>}
     </section>
   );
 }

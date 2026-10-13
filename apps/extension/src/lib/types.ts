@@ -17,7 +17,8 @@ export interface StoredItem {
   version: number;
   folderId: string | null;
   favorite: boolean;
-  updatedAt: string; // ISO
+  /** ISO。本地新建/修改时用本机时钟（仅本地展示与排序用）；推送到服务端后由服务端重新盖章。 */
+  updatedAt: string;
   deletedAt: string | null; // ISO，软删
   /** 本地未同步标记，不上传服务端 */
   dirty?: boolean;

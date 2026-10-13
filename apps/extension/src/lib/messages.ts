@@ -43,6 +43,10 @@ export interface Status {
   pendingSave: { url: string; username: string } | null;
   syncConfigured: boolean;
   syncEmail?: string;
+  /** 上次同步成功的服务端时间（ISO）；从未同步过则空 */
+  lastSyncAt?: string;
+  /** 上次同步失败的原因；同步正常时为空 */
+  syncError?: string;
 }
 
 /** 类型安全的 background 调用：失败时抛 Error */

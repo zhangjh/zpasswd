@@ -19,6 +19,11 @@ export const DEFAULT_SERVER_URL = 'https://zpasswd-server.favlink.workers.dev';
  *
  * 所有条目在两端都是不透明密文；时间戳统一为 ISO 字符串；version 做乐观并发，
  * 服务端只接受 version 更大的写入。
+ *
+ * 时间以服务端为准：条目上的 updatedAt 由服务端用它自己的时钟盖章（客户端传来的值
+ * 只用于本地展示与排序，服务端忽略），since / serverTime 也取服务端时钟。
+ * 因此客户端时钟偏差不会造成漏拉；serverTime 还会回退 5 秒安全窗口，
+ * 覆盖"写入已取样时间戳但尚未提交"的并发窗口，重复投递由 version 幂等吸收。
  */
 
 /** 服务端条目（不含本地 dirty 标记） */

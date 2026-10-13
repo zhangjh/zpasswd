@@ -3,6 +3,9 @@
  *
  * 铁律：
  * - 服务端永远不接触明文、主密码、MK；收到的 nonce/ciphertext 都是不透明字符串。
+ * - **时间一律以服务端为准**：vault_items.updated_at / deleted_at 由服务端盖章，
+ *   客户端传来的 updatedAt 只用于它本地的展示与排序，不入库；增量同步游标同样取
+ *   服务端时钟。两者同源，客户端时钟偏差不会再造成漏拉。
  * - 错误信息不区分"用户不存在 / 密码错误"（登录统一 invalid credentials；
  *   注册时邮箱冲突伪装成成功）。
  * - 日志只打 userId，不打 email（本服务默认不打业务日志）。
@@ -23,6 +26,18 @@ import type { VaultItemRow } from './db';
 function isValidEmail(s: unknown): s is string {
   return typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && s.length <= 254;
 }
+
+/**
+ * 增量同步游标的安全回溯窗口（毫秒）。
+ *
+ * 写入与拉取是并发的两条路径：写入方在 T1 取样时间戳、T2 才真正提交；拉取方若在
+ * T1..T2 之间取样游标并查询，就会发出一个"比该行更新的游标"，该行此后永远满足不了
+ * `updated_at >= since`，被永久漏拉（对密码管理器来说就是丢数据）。
+ *
+ * 让游标保守地退后几秒即可消除这个窗口：这段时间内的变更会被重复投递，客户端按
+ * version 幂等处理（version 不大于本地就跳过），代价可忽略。
+ */
+const SYNC_CURSOR_LOOKBACK_MS = 5_000;
 
 async function readJson(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown> | null> {
   try {
@@ -181,13 +196,22 @@ export function registerRoutes(app: App) {
       const t = /^\d+$/.test(q) ? Number(q) : Date.parse(q);
       if (Number.isFinite(t) && t > 0) since = t;
     }
+    // 游标与 updated_at 同源（都是服务端时钟），并做两点保证：
+    // 1) 取样放在查询之前，且比较用 >=：恰好在边界毫秒上写入的行不会被漏掉
+    //    （最坏只是重复投递一次，客户端按 version 幂等）；
+    // 2) 返回的游标再退 SYNC_CURSOR_LOOKBACK_MS，覆盖"写入方已取样时间戳、
+    //    但行尚未提交"的并发窗口。
+    const nowMs = Date.now();
     const rows = await c.env.DB.prepare(
       `SELECT id, user_id, nonce, ciphertext, version, folder_id, favorite, updated_at, deleted_at
-       FROM vault_items WHERE user_id = ? AND updated_at > ? ORDER BY updated_at ASC`,
+       FROM vault_items WHERE user_id = ? AND updated_at >= ? ORDER BY updated_at ASC`,
     )
       .bind(userId, since)
       .all<VaultItemRow>();
-    return c.json({ items: (rows.results ?? []).map(toItemJson), serverTime: new Date().toISOString() });
+    return c.json({
+      items: (rows.results ?? []).map(toItemJson),
+      serverTime: new Date(nowMs - SYNC_CURSOR_LOOKBACK_MS).toISOString(),
+    });
   });
 
   // ---------------------------------------------- 批量上传（乐观锁）----
@@ -214,16 +238,10 @@ export function registerRoutes(app: App) {
     const accepted: string[] = [];
     const rejectedIds: string[] = [];
     const stmts: D1PreparedStatement[] = [];
+    // 时间一律以服务端为准：客户端传来的 updatedAt 只用于它本地的展示与排序，**不入库**。
+    // 若采信客户端时钟，时钟慢的设备写入的行会"落在游标的过去"（游标是服务端时钟），
+    // 其他设备将永久漏拉。取样点放在构造语句前，尽量贴近真正写入的时刻。
     const now = Date.now();
-    // 时间戳：接受毫秒数或 ISO 字符串，一律转毫秒存
-    const toMs = (v: unknown, fallback: number | null): number | null => {
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
-      if (typeof v === 'string') {
-        const t = Date.parse(v);
-        if (Number.isFinite(t)) return t;
-      }
-      return fallback;
-    };
     for (const raw of items) {
       const it = raw as {
         id?: unknown;
@@ -232,6 +250,7 @@ export function registerRoutes(app: App) {
         version?: unknown;
         folderId?: unknown;
         favorite?: unknown;
+        /** 客户端本地时间，服务端刻意忽略（见上方注释） */
         updatedAt?: unknown;
         deletedAt?: unknown;
       };
@@ -250,8 +269,9 @@ export function registerRoutes(app: App) {
         continue;
       }
       accepted.push(it.id);
-      const updatedAt = toMs(it.updatedAt, now) as number;
-      const deletedAt = toMs(it.deletedAt, null);
+      const updatedAt = now;
+      // 客户端只表达"删了"，不表达"何时删的"：deleted_at 同样用服务端收到删除的时刻
+      const deletedAt = it.deletedAt == null ? null : now;
       stmts.push(
         c.env.DB.prepare(
           `INSERT INTO vault_items (id, user_id, nonce, ciphertext, version, folder_id, favorite, updated_at, deleted_at)

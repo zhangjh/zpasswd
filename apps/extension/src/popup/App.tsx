@@ -191,6 +191,17 @@ function Unlock({ onDone }: { onDone: () => void }) {
 
 /* ---------------- 主界面 ---------------- */
 
+/** 底部同步状态文案：连接状态 + 上次同步时间 */
+function syncLabel(status: Status): string {
+  if (!status.syncConfigured) return '未连接同步';
+  const parts = [`已连接同步${status.syncEmail ? ` · ${status.syncEmail}` : ''}`];
+  if (status.lastSyncAt) {
+    const t = new Date(status.lastSyncAt);
+    if (!Number.isNaN(t.getTime())) parts.push(`上次 ${t.toLocaleTimeString()}`);
+  }
+  return parts.join(' · ');
+}
+
 function VaultView({ status, onStatusChange }: { status: Status; onStatusChange: () => void }) {
   const [items, setItems] = useState<ItemMeta[]>([]);
   const [query, setQuery] = useState('');
@@ -352,7 +363,7 @@ function VaultView({ status, onStatusChange }: { status: Status; onStatusChange:
       ))}
 
       <div className="footer">
-        <span className="hint">{status.syncConfigured ? `已连接同步${status.syncEmail ? ` · ${status.syncEmail}` : ''}` : '未连接同步'}</span>
+        <span className="hint">{syncLabel(status)}</span>
         <span className="row fit" style={{ gap: 6 }}>
           <button className="small ghost" onClick={() => void doSync()}>
             同步
@@ -365,6 +376,8 @@ function VaultView({ status, onStatusChange }: { status: Status; onStatusChange:
           </button>
         </span>
       </div>
+
+      {status.syncError && <div className="err">上次同步失败：{status.syncError}</div>}
 
       {showAdd && (
         <Modal onClose={() => setShowAdd(false)}>

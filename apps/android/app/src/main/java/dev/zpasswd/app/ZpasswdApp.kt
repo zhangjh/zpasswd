@@ -3,6 +3,7 @@ package dev.zpasswd.app
 import android.app.Application
 import dev.zpasswd.app.biometric.DeviceAutoUnlock
 import dev.zpasswd.app.data.VaultRepository
+import dev.zpasswd.app.sync.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,6 +16,9 @@ class ZpasswdApp : Application() {
     override fun onCreate() {
         super.onCreate()
         repo = VaultRepository.get(this)
+        // 注册周期兜底同步：保存后 / 解锁后的同步是即时触发的，进程被杀或当时没网会漏掉，
+        // 由这个系统级周期任务补上。幂等，重复调用不会重建任务。
+        runCatching { SyncScheduler.schedulePeriodic(this) }
         // 设备免解锁：进程一起（App 启动、自动填充服务被拉起、无障碍服务被拉起）就尝试
         // 恢复解锁态。放在这里是为了让所有入口共享同一份结果，避免各自重复解锁。
         // 未开启免解锁时 tryUnlock 立即返回 false，开销可忽略。

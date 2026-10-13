@@ -93,6 +93,7 @@ import dev.zpasswd.app.data.MetaEntity
 import dev.zpasswd.app.data.VaultItemPlain
 import dev.zpasswd.app.data.VaultRepository
 import dev.zpasswd.app.sync.SyncEngine
+import dev.zpasswd.app.sync.SyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1341,12 +1342,16 @@ private fun SyncSection(activity: FragmentActivity, repo: VaultRepository) {
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var showConnectDialog by remember { mutableStateOf(false) }
+    /** 最近一次自动/手动同步失败的原因（存在 meta，重启后仍在） */
+    var syncError by remember { mutableStateOf<String?>(null) }
 
     fun reload() {
         scope.launch(Dispatchers.IO) {
             val s = repo.getSyncState()
+            val err = repo.db.metaDao().get(VaultRepository.KEY_SYNC_ERROR)
             withContext(Dispatchers.Main) {
                 syncState = s
+                syncError = err?.takeIf { it.isNotBlank() }
                 if (s != null) {
                     serverUrl = s.serverUrl
                     email = s.email
@@ -1374,13 +1379,17 @@ private fun SyncSection(activity: FragmentActivity, repo: VaultRepository) {
                             busy = true; message = null
                             scope.launch(Dispatchers.IO) {
                                 try {
-                                    val r = SyncEngine(repo).runSync()
+                                    val r = SyncScheduler.syncNow(repo)
                                     withContext(Dispatchers.Main) {
                                         message = "同步完成：推送 ${r.pushed}，拉取 ${r.pulled}" +
                                             if (r.conflicts > 0) "，冲突 ${r.conflicts}（已存入「同步冲突」）" else ""
+                                        reload()
                                     }
                                 } catch (e: Exception) {
-                                    withContext(Dispatchers.Main) { message = e.message ?: "同步失败" }
+                                    withContext(Dispatchers.Main) {
+                                        message = e.message ?: "同步失败"
+                                        reload()
+                                    }
                                 } finally {
                                     withContext(Dispatchers.Main) { busy = false }
                                 }
@@ -1432,6 +1441,15 @@ private fun SyncSection(activity: FragmentActivity, repo: VaultRepository) {
             message?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(it, style = MaterialTheme.typography.bodySmall)
+            }
+            // 自动同步失败不会弹窗打断用户，但必须让用户能查到，否则只会表现为"换设备没数据"
+            syncError?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "上次同步失败：$it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }

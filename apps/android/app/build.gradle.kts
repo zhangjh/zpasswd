@@ -69,6 +69,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
+    // 周期兜底同步（SyncScheduler）：保存后/解锁后的同步是即时触发的，
+    // 但进程被杀、网络当时不可用等情况会漏掉，需要一个系统级周期任务补上。
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     // libsodium JNI（含 crypto_pwhash Argon2id / crypto_kdf / XChaCha20-Poly1305）
     // 注意：正确坐标是 com.goterl:lazysodium-android（groupId 无连字符后缀）
     implementation("com.goterl:lazysodium-android:5.2.0") {
