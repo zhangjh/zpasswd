@@ -4,3 +4,6 @@ dist/
 .DS_Store
 .wrangler/
 .dev.vars
+
+# 本地工作记录（AI 记忆 / 每日日志），只在本机有意义，不进仓库
+.workbuddy-ai/
